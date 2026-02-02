@@ -4,6 +4,7 @@ networks:
     driver: bridge
 volumes:
   redpanda-0: null
+  mongodb_data: null
 services:
   redpanda-0:
     command:
@@ -72,3 +73,17 @@ services:
       - 8080:8080
     depends_on:
       - redpanda-0
+
+  mongodb:
+    image: mongo:8.0
+    container_name: mongodb
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    ports:
+      - 27017:27017
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - redpanda_network
