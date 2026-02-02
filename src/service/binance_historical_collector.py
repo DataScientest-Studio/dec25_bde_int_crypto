@@ -3,10 +3,16 @@ import time
 import pandas as pd
 from datetime import datetime, timezone
 from typing import List, Dict
-
-BASE_URL = "https://api.binance.com/api/v3/klines"
-MAX_LIMIT = 1000
-RATE_LIMIT_SLEEP = 0.5  # seconds
+from src.constants import (
+    BASE_URL,
+    MAX_LIMIT,
+    RATE_LIMIT_SLEEP,
+    SYMBOL,
+    INTERVAL,
+    START_DATE,
+    END_DATE,
+    DATA_DIR
+)
 
 
 def fetch_klines(
@@ -83,12 +89,12 @@ def transform_klines(
 
 def save_data(df: pd.DataFrame, symbol: str, interval: str):
     """
-    Save data to CSV and JSON
+    Save data to CSV and JSON in data folder
     """
     base_name = f"{symbol}_{interval}"
 
-    csv_path = f"{base_name}.csv"
-    json_path = f"{base_name}.json"
+    csv_path = f"{DATA_DIR}/{base_name}.csv"
+    json_path = f"{DATA_DIR}/{base_name}.json"
 
     df.to_csv(csv_path, index=False)
     df.to_json(json_path, orient="records", date_format="iso")
@@ -110,14 +116,6 @@ def to_unix_ms(date_str: str) -> int:
 
 
 if __name__ == "__main__":
-    # =============================
-    # CONFIGURATION
-    # =============================
-    SYMBOL = "BTCUSDT"
-    INTERVAL = "1h"
-    START_DATE = "2023-01-01"  # YYYY-MM-DD
-    END_DATE = None            # or "2024-01-01"
-
     print("Starting Binance historical data collection")
     print(f"Symbol   : {SYMBOL}")
     print(f"Interval : {INTERVAL}")
