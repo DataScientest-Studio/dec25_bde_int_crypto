@@ -12,7 +12,7 @@ We will use this data for:
 
 Reference diagram:
 
-![Binance Data ML Pipeline](docs/Binance Data ML Pipeline-2026-01-30-100112.png)
+![Binance Data ML Pipeline](./Binance Data ML Pipeline-2026-01-30-100112.png)
 
 ---
 
