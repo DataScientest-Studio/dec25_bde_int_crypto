@@ -1,58 +1,55 @@
 name: redpanda-quickstart-one-broker
+
 networks:
   redpanda_network:
     driver: bridge
+
 volumes:
-  redpanda-0: null
-  mongodb_data: null
+  redpanda-0:
+  mongodb_data:
+  grafana_data:
+
 services:
   redpanda-0:
+    image: docker.redpanda.com/redpandadata/redpanda:v25.3.6
+    container_name: redpanda-0
     command:
       - redpanda
       - start
       - --kafka-addr
       - internal://0.0.0.0:9092,external://0.0.0.0:19092
-      # Address the broker advertises to clients that connect to the Kafka API.
-      # Use the internal addresses to connect to the Redpanda brokers
-      # from inside the same Docker network.
-      # Use the external addresses to connect to the Redpanda brokers
-      # from outside the Docker network.
       - --advertise-kafka-addr
       - internal://redpanda-0:9092,external://localhost:19092
       - --pandaproxy-addr
       - internal://0.0.0.0:8082,external://0.0.0.0:18082
-      # Address the broker advertises to clients that connect to the HTTP Proxy.
       - --advertise-pandaproxy-addr
       - internal://redpanda-0:8082,external://localhost:18082
       - --schema-registry-addr
       - internal://0.0.0.0:8081,external://0.0.0.0:18081
-      # Redpanda brokers use the RPC API to communicate with each other internally.
       - --rpc-addr
       - redpanda-0:33145
       - --advertise-rpc-addr
       - redpanda-0:33145
-      # Mode dev-container uses well-known configuration properties for development in containers.
       - --mode
       - dev-container
-      # Tells Seastar (the framework Redpanda uses under the hood) to use 1 core on the system.
       - --smp
       - "1"
       - --default-log-level=info
-    image: docker.redpanda.com/redpandadata/redpanda:v25.3.6
-    container_name: redpanda-0
     volumes:
       - redpanda-0:/var/lib/redpanda/data
     networks:
       - redpanda_network
     ports:
-      - 18081:18081   # Schema Registry external
-      - 18082:18082   # HTTP Proxy external
-      - 19092:19092   # Kafka API external
-      - 19644:9644    # Admin API external
+      - 18081:18081   # Schema Registry
+      - 18082:18082   # HTTP Proxy
+      - 19092:19092   # Kafka API
+      - 19644:9644    # Admin API
 
   console:
-    container_name: redpanda-console
     image: docker.redpanda.com/redpandadata/console:v3.5.0
+    container_name: redpanda-console
+    depends_on:
+      - redpanda-0
     networks:
       - redpanda_network
     entrypoint: /bin/sh
@@ -71,13 +68,13 @@ services:
             urls: ["http://redpanda-0:9644"]
     ports:
       - 8080:8080
-    depends_on:
-      - redpanda-0
 
   mongodb:
     image: mongo:8.0
     container_name: mongodb
-    restart: always
+    restart: unless-stopped
+    networks:
+      - redpanda_network
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
@@ -85,5 +82,56 @@ services:
       - 27017:27017
     volumes:
       - mongodb_data:/data/db
+
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: mongo-express
+    restart: unless-stopped
+    depends_on:
+      - mongodb
     networks:
       - redpanda_network
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+    ports:
+      - 8082:8081
+
+  grafana-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.grafana-api
+    container_name: grafana-api
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    networks:
+      - redpanda_network
+    ports:
+      - 8000:8000
+    environment:
+      - MONGODB_URI=mongodb://admin:password@mongodb:27017/
+      - MONGODB_DATABASE=crypto_data
+      - MONGODB_COLLECTION=klines
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: grafana
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+      - grafana-api
+    networks:
+      - redpanda_network
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+    ports:
+      - 3000:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning

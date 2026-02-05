@@ -14,3 +14,12 @@ END_DATE = None            # or "2024-01-01"
 # Directory Paths
 DATA_DIR = "data"
 MODELS_DIR = "models"
+
+# Redpanda/Kafka Configuration
+KAFKA_BROKER = "localhost:19092"
+KAFKA_TOPIC = "binance-klines"
+
+# MongoDB Configuration
+MONGODB_URI = "mongodb://admin:password@localhost:27017/"
+MONGODB_DATABASE = "crypto_data"
+MONGODB_COLLECTION = "klines"

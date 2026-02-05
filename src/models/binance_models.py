@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
 class BinanceKline(BaseModel):
@@ -91,3 +91,57 @@ class KlineData(BaseModel):
             quote_volume=kline.quote_volume,
             trade_count=kline.trade_count
         )
+
+
+class KlineMessage(BaseModel):
+    """
+    Pydantic model for Kafka message value from Binance WebSocket stream.
+
+    This model represents the kline data structure as published to Redpanda/Kafka
+    by the WebSocket producer (stream_binance.py lines 242-255).
+    """
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    event_time: int = Field(..., description="Event time in milliseconds - unique per message")
+    symbol: str = Field(..., description="Trading pair symbol (e.g., BTCUSDT)")
+    interval: str = Field(..., description="Kline interval (e.g., 1m, 5m, 1h, 1d)")
+    timestamp: str = Field(..., description="Kline timestamp in ISO format")
+    open: float = Field(..., description="Open price")
+    high: float = Field(..., description="High price")
+    low: float = Field(..., description="Low price")
+    close: float = Field(..., description="Close price")
+    volume: float = Field(..., description="Base asset volume")
+    quote_volume: float = Field(..., description="Quote asset volume")
+    trade_count: int = Field(..., description="Number of trades")
+    is_closed: bool = Field(..., description="Whether the kline/candle is closed")
+
+    def to_timestamp(self) -> datetime:
+        """Convert ISO format timestamp string to datetime object."""
+        return datetime.fromisoformat(self.timestamp)
+
+    def to_event_timestamp(self) -> datetime:
+        """Convert event_time milliseconds to datetime object."""
+        return datetime.fromtimestamp(self.event_time / 1000, tz=timezone.utc)
+
+    def to_mongo_doc(self) -> dict:
+        """
+        Convert to MongoDB document format.
+
+        Returns a dict suitable for insertion into MongoDB with datetime objects
+        instead of strings for better querying and indexing.
+        """
+        return {
+            "event_time": self.event_time,
+            "event_timestamp": self.to_event_timestamp(),
+            "symbol": self.symbol,
+            "interval": self.interval,
+            "timestamp": self.to_timestamp(),
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+            "quote_volume": self.quote_volume,
+            "trade_count": self.trade_count,
+            "is_closed": self.is_closed
+        }

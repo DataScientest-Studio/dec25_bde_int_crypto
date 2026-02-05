@@ -13,12 +13,13 @@ import ssl
 from datetime import datetime, timezone
 from typing import Callable, Optional
 import websockets
+from quixstreams import Application
 from src.models.binance_models import BinanceKline, KlineData
-from src.constants import SYMBOL, INTERVAL
+from src.constants import SYMBOL, INTERVAL, KAFKA_BROKER, KAFKA_TOPIC
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -38,7 +39,10 @@ class BinanceWebSocketCollector:
         self,
         symbol: str = SYMBOL,
         interval: str = INTERVAL,
-        callback: Optional[Callable[[KlineData], None]] = None
+        callback: Optional[Callable[[KlineData], None]] = None,
+        kafka_broker: str = KAFKA_BROKER,
+        kafka_topic: str = KAFKA_TOPIC,
+        enable_kafka: bool = True
     ):
         """
         Initialize the WebSocket collector.
@@ -47,6 +51,9 @@ class BinanceWebSocketCollector:
             symbol: Trading pair symbol (e.g., 'BTCUSDT')
             interval: Kline interval (e.g., '1m', '5m', '1h', '1d')
             callback: Optional callback function to process received data
+            kafka_broker: Kafka broker address (default: localhost:19092)
+            kafka_topic: Kafka topic name (default: binance-klines)
+            enable_kafka: Enable Kafka producer (default: True)
         """
         self.symbol = symbol.lower()
         self.interval = interval
@@ -54,6 +61,32 @@ class BinanceWebSocketCollector:
         self.ws_url = f"{BINANCE_WS_BASE_URL}/{self.symbol}@kline_{self.interval}"
         self.websocket = None
         self.running = False
+        self.enable_kafka = enable_kafka
+
+        # Initialize QuixStreams application and producer
+        if self.enable_kafka:
+            try:
+                logger.info(f"Initializing Kafka producer: broker={kafka_broker}, topic={kafka_topic}")
+                self.app = Application(
+                    broker_address=kafka_broker,
+                    loglevel="DEBUG"
+                )
+                self.topic = self.app.topic(kafka_topic, value_serializer="json")
+                self.producer = self.app.get_producer()
+                logger.info(f"✓ Kafka producer initialized successfully")
+                logger.info(f"  - Broker: {kafka_broker}")
+                logger.info(f"  - Topic: {kafka_topic}")
+                logger.info(f"  - Producer: {type(self.producer)}")
+            except Exception as e:
+                logger.error(f"Failed to initialize Kafka producer: {e}", exc_info=True)
+                self.app = None
+                self.topic = None
+                self.producer = None
+        else:
+            self.app = None
+            self.topic = None
+            self.producer = None
+            logger.info("Kafka producer disabled")
 
         # Build an explicit SSL context so cert handling is predictable across OS/Python builds.
         # Optionally allow a custom CA bundle (e.g., corporate proxy CA) via BINANCE_CA_FILE.
@@ -91,11 +124,16 @@ class BinanceWebSocketCollector:
             raise
 
     async def disconnect(self):
-        """Close WebSocket connection."""
+        """Close WebSocket connection and cleanup Kafka producer."""
         self.running = False
         if self.websocket:
             await self.websocket.close()
             logger.info("WebSocket connection closed")
+
+        # Cleanup Kafka producer
+        if self.producer:
+            self.producer.flush()
+            logger.info("Kafka producer flushed and closed")
 
     def _parse_kline_message(self, message: dict) -> Optional[KlineData]:
         """
@@ -193,6 +231,55 @@ class BinanceWebSocketCollector:
                             f"L: {kline.low:.2f} C: {kline.close:.2f} | "
                             f"Vol: {kline.volume:.2f}"
                         )
+
+                        # Publish to Kafka/Redpanda
+                        logger.debug(f"Checking Kafka publish - producer: {self.producer is not None}, topic: {self.topic is not None}")
+                        if self.producer is not None and self.topic is not None:
+                            try:
+                                logger.debug(f"Preparing message for Kafka...")
+                                # Convert KlineData to dict for serialization
+                                # Include event_time from raw message for unique identification
+                                message_value = {
+                                    "event_time": data.get('E'),  # Event time - unique per message
+                                    "symbol": kline.symbol,
+                                    "interval": kline.interval,
+                                    "timestamp": kline.timestamp.isoformat(),
+                                    "open": kline.open,
+                                    "high": kline.high,
+                                    "low": kline.low,
+                                    "close": kline.close,
+                                    "volume": kline.volume,
+                                    "quote_volume": kline.quote_volume,
+                                    "trade_count": kline.trade_count,
+                                    "is_closed": is_closed
+                                }
+
+                                # Use symbol as message key for partitioning
+                                message_key = kline.symbol
+
+                                logger.debug(f"Serializing message: key={message_key}")
+                                # Serialize and produce message to Kafka
+                                serialized = self.topic.serialize(
+                                    key=message_key,
+                                    value=message_value
+                                )
+
+                                logger.debug(f"Producing to topic: {self.topic.name}")
+                                self.producer.produce(
+                                    topic=self.topic.name,
+                                    key=serialized.key,
+                                    value=serialized.value
+                                )
+
+                                logger.debug(f"Flushing producer...")
+                                # Flush immediately to ensure message is sent
+                                self.producer.flush()
+
+                                logger.info(f"✓ Published to Kafka: {kline.symbol} -> {status}")
+                            except Exception as e:
+                                logger.error(f"✗ Failed to publish to Kafka: {e}", exc_info=True)
+                        else:
+                            logger.warning(f"Kafka not available - producer: {self.producer is not None}, topic: {self.topic is not None}")
 
                         # Execute callback if provided
                         if self.callback:
