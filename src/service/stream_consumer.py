@@ -10,7 +10,7 @@ from pymongo import MongoClient, errors
 from pymongo.collection import Collection
 from quixstreams import Application
 from src.constants import KAFKA_BROKER, KAFKA_TOPIC, MONGODB_URI, MONGODB_DATABASE, MONGODB_COLLECTION
-from src.models.binance_models import KlineMessage
+from src.models.models import KlineMessage
 
 # Configure logging
 logging.basicConfig(

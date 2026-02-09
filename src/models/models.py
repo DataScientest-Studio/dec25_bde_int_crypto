@@ -98,7 +98,7 @@ class KlineMessage(BaseModel):
     Pydantic model for Kafka message value from Binance WebSocket stream.
 
     This model represents the kline data structure as published to Redpanda/Kafka
-    by the WebSocket producer (stream_binance.py lines 242-255).
+    by the WebSocket producer (stream_producer.py lines 242-255).
     """
     model_config = ConfigDict(str_strip_whitespace=True)
 

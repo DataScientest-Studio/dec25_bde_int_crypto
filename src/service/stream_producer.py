@@ -14,7 +14,8 @@ from datetime import datetime, timezone
 from typing import Callable, Optional
 import websockets
 from quixstreams import Application
-from src.models.binance_models import BinanceKline, KlineData
+from src.models.models import KlineData
+from src.mappers import KlineMapper
 from src.constants import SYMBOL, INTERVAL, KAFKA_BROKER, KAFKA_TOPIC
 
 # Configure logging
@@ -42,7 +43,8 @@ class BinanceWebSocketCollector:
         callback: Optional[Callable[[KlineData], None]] = None,
         kafka_broker: str = KAFKA_BROKER,
         kafka_topic: str = KAFKA_TOPIC,
-        enable_kafka: bool = True
+        enable_kafka: bool = True,
+        mapper: KlineMapper = None
     ):
         """
         Initialize the WebSocket collector.
@@ -54,6 +56,7 @@ class BinanceWebSocketCollector:
             kafka_broker: Kafka broker address (default: localhost:19092)
             kafka_topic: Kafka topic name (default: binance-klines)
             enable_kafka: Enable Kafka producer (default: True)
+            mapper: KlineMapper instance for message conversion (default: creates new instance)
         """
         self.symbol = symbol.lower()
         self.interval = interval
@@ -62,6 +65,7 @@ class BinanceWebSocketCollector:
         self.websocket = None
         self.running = False
         self.enable_kafka = enable_kafka
+        self.mapper = mapper or KlineMapper()
 
         # Initialize QuixStreams application and producer
         if self.enable_kafka:
@@ -135,72 +139,6 @@ class BinanceWebSocketCollector:
             self.producer.flush()
             logger.info("Kafka producer flushed and closed")
 
-    def _parse_kline_message(self, message: dict) -> Optional[KlineData]:
-        """
-        Parse WebSocket kline message into KlineData model.
-
-        Binance kline WebSocket message format:
-        {
-          "e": "kline",     // Event type
-          "E": 123456789,   // Event time
-          "s": "BTCUSDT",   // Symbol
-          "k": {
-            "t": 123400000, // Kline start time
-            "T": 123460000, // Kline close time
-            "s": "BTCUSDT", // Symbol
-            "i": "1m",      // Interval
-            "f": 100,       // First trade ID
-            "L": 200,       // Last trade ID
-            "o": "0.0010",  // Open price
-            "c": "0.0020",  // Close price
-            "h": "0.0025",  // High price
-            "l": "0.0015",  // Low price
-            "v": "1000",    // Base asset volume
-            "n": 100,       // Number of trades
-            "x": false,     // Is this kline closed?
-            "q": "1.0000",  // Quote asset volume
-            "V": "500",     // Taker buy base asset volume
-            "Q": "0.500",   // Taker buy quote asset volume
-            "B": "123456"   // Ignore
-          }
-        }
-        """
-        try:
-            if message.get('e') != 'kline':
-                return None
-
-            kline_data = message.get('k', {})
-
-            # Create BinanceKline from WebSocket data
-            binance_kline = BinanceKline(
-                open_time=kline_data['t'],
-                open=float(kline_data['o']),
-                high=float(kline_data['h']),
-                low=float(kline_data['l']),
-                close=float(kline_data['c']),
-                volume=float(kline_data['v']),
-                close_time=kline_data['T'],
-                quote_volume=float(kline_data['q']),
-                trade_count=kline_data['n'],
-                taker_buy_base_volume=float(kline_data['V']),
-                taker_buy_quote_volume=float(kline_data['Q'])
-            )
-
-            # Convert to enriched KlineData
-            kline = KlineData.from_kline(
-                kline=binance_kline,
-                symbol=kline_data['s'],
-                interval=kline_data['i']
-            )
-
-            # Add is_closed flag for tracking candle completion
-            kline.__dict__['is_closed'] = kline_data['x']
-
-            return kline
-
-        except (KeyError, ValueError, TypeError) as e:
-            logger.error(f"Error parsing kline message: {e}")
-            return None
 
     async def stream(self):
         """
@@ -218,11 +156,14 @@ class BinanceWebSocketCollector:
 
                 try:
                     data = json.loads(message)
-                    kline = self._parse_kline_message(data)
 
-                    if kline:
+                    # Use mapper to convert WebSocket message to structured models
+                    result = self.mapper.websocket_to_kafka_message(data)
+
+                    if result:
+                        kline_message, kline, is_closed = result
+
                         # Log the received data
-                        is_closed = getattr(kline, 'is_closed', False)
                         status = "CLOSED" if is_closed else "UPDATE"
                         logger.info(
                             f"[{status}] {kline.symbol} {kline.interval} | "
@@ -237,22 +178,6 @@ class BinanceWebSocketCollector:
                         if self.producer is not None and self.topic is not None:
                             try:
                                 logger.debug(f"Preparing message for Kafka...")
-                                # Convert KlineData to dict for serialization
-                                # Include event_time from raw message for unique identification
-                                message_value = {
-                                    "event_time": data.get('E'),  # Event time - unique per message
-                                    "symbol": kline.symbol,
-                                    "interval": kline.interval,
-                                    "timestamp": kline.timestamp.isoformat(),
-                                    "open": kline.open,
-                                    "high": kline.high,
-                                    "low": kline.low,
-                                    "close": kline.close,
-                                    "volume": kline.volume,
-                                    "quote_volume": kline.quote_volume,
-                                    "trade_count": kline.trade_count,
-                                    "is_closed": is_closed
-                                }
 
                                 # Use symbol as message key for partitioning
                                 message_key = kline.symbol
@@ -261,7 +186,7 @@ class BinanceWebSocketCollector:
                                 # Serialize and produce message to Kafka
                                 serialized = self.topic.serialize(
                                     key=message_key,
-                                    value=message_value
+                                    value=kline_message.model_dump()
                                 )
 
                                 logger.debug(f"Producing to topic: {self.topic.name}")
