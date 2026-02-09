@@ -16,15 +16,9 @@ class UpsertStats:
 
 class AsyncKlineStore:
     """Async Mongo store using Motor.
-
-    Notes
-    - We enforce idempotency with a UNIQUE index on (symbol, interval, open_time_ms).
-    - In real repos, you may already have older documents that *don't* have open_time_ms.
-      Those docs look like open_time_ms = null to Mongo's index builder and can break a
-      UNIQUE index.
-
-    Fix:
-    - Use a *partial* UNIQUE index so the constraint only applies when open_time_ms exists.
+    Why:
+    - Non-blocking writes while we are fetching pages from Binance.
+    - Bulk upsert keeps Mongo calls efficient (idempotent reruns).
     """
 
     def __init__(self, *, uri: str, database: str, collection: str) -> None:
@@ -40,52 +34,12 @@ class AsyncKlineStore:
         self.client.close()
 
     async def ensure_indexes(self) -> None:
-        """Create indexes (safe to call repeatedly).
-
-        Uses a partial unique index to avoid failures when old documents have
-        open_time_ms missing/null.
-        """
-
-        index_name = "uniq_symbol_interval_open_time_ms"
-        keys = [("symbol", 1), ("interval", 1), ("open_time_ms", 1)]
-        options = {
-            "unique": True,
-            "name": index_name,
-            "partialFilterExpression": {"open_time_ms": {"$exists": True, "$ne": None}},
-        }
-
-        print(f"[mongo] ensuring index {index_name} (partial unique)")
-
-        try:
-            await self.collection.create_index(keys, **options)
-            return
-        except Exception as e:
-            msg = str(e)
-
-            # If the index already exists with different options, drop & recreate.
-            if (
-                "already exists" in msg
-                or "IndexOptionsConflict" in msg
-                or "different options" in msg
-                or "conflicts with" in msg
-            ):
-                print(f"[mongo] index conflict for {index_name}; dropping and recreating")
-                try:
-                    await self.collection.drop_index(index_name)
-                except Exception:
-                    pass
-                await self.collection.create_index(keys, **options)
-                return
-
-            # If it still fails due to true duplicates (same open_time_ms), surface a helpful hint.
-            if "E11000" in msg or "duplicate key" in msg:
-                print(
-                    "[mongo] UNIQUE index build failed due to duplicate keys. "
-                    "This usually means you have duplicate (symbol, interval, open_time_ms) records. "
-                    "Consider deduping the collection for that key."
-                )
-
-            raise
+        # Unique index makes upserts idempotent: reruns don't create duplicates.
+        await self.collection.create_index(
+            [("symbol", 1), ("interval", 1), ("open_time_ms", 1)],
+            unique=True,
+            name="uniq_symbol_interval_open_time_ms",
+        )
 
     async def upsert_many(self, klines: Sequence[HistoricalKline]) -> UpsertStats:
         if not klines:
