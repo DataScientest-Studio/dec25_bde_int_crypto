@@ -25,7 +25,7 @@ from src.constants import (
     START_DATE,
     SYMBOL,
 )
-from src.models.binance_models import HistoricalKline, SUPPORTED_INTERVALS
+from src.models.models import HistoricalKline, SUPPORTED_INTERVALS
 from src.service.mongo_repository import AsyncKlineStore
 
 
