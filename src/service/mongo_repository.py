@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from src.models.binance_models import HistoricalKline
+from src.models.models import HistoricalKline
 
 
 @dataclass(frozen=True)
@@ -16,9 +16,17 @@ class UpsertStats:
 
 class AsyncKlineStore:
     """Async Mongo store using Motor.
-    Why:
-    - Non-blocking writes while we are fetching pages from Binance.
-    - Bulk upsert keeps Mongo calls efficient (idempotent reruns).
+
+    Why the partial unique index?
+    - We want a UNIQUE constraint on (symbol, interval, open_time_ms).
+    - Older/legacy docs may have open_time_ms missing/null.
+      Mongo treats missing as null for indexing, so many docs collapse to the same key
+      and UNIQUE index creation fails.
+
+    Compatibility note:
+    - Some Mongo versions/providers don't allow `$ne: null` in `partialFilterExpression`
+      (it is internally rewritten to `$not: {$eq: null}` which is rejected).
+    - We use `open_time_ms > 0` instead, which is valid for our domain and widely supported.
     """
 
     def __init__(self, *, uri: str, database: str, collection: str) -> None:
@@ -34,12 +42,34 @@ class AsyncKlineStore:
         self.client.close()
 
     async def ensure_indexes(self) -> None:
-        # Unique index makes upserts idempotent: reruns don't create duplicates.
-        await self.collection.create_index(
-            [("symbol", 1), ("interval", 1), ("open_time_ms", 1)],
-            unique=True,
-            name="uniq_symbol_interval_open_time_ms",
-        )
+        """Create the unique kline index (safe to call repeatedly)."""
+        name = "uniq_symbol_interval_open_time_ms"
+        keys = [("symbol", 1), ("interval", 1), ("open_time_ms", 1)]
+        opts = {"unique": True, "name": name, "partialFilterExpression": {"open_time_ms": {"$gt": 0}}}
+
+        print(f"[mongo] ensure index {name} (partial unique open_time_ms>0)")
+
+        try:
+            await self.collection.create_index(keys, **opts)
+            return
+        except Exception as e:
+            msg = str(e)
+            conflict = any(s in msg for s in
+                           ("IndexOptionsConflict", "IndexKeySpecsConflict", "same name as the requested index",
+                            "different options"))
+            if conflict:
+                print(f"[mongo] index conflict -> drop & recreate: {name}")
+                try:
+                    await self.collection.drop_index(name)
+                except Exception:
+                    pass
+                await self.collection.create_index(keys, **opts)
+                return
+
+            if "E11000" in msg or "duplicate key" in msg:
+                print("[mongo] duplicate keys exist for (symbol, interval, open_time_ms)")
+
+            raise
 
     async def upsert_many(self, klines: Sequence[HistoricalKline]) -> UpsertStats:
         if not klines:
