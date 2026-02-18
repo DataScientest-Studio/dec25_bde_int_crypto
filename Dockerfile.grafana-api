@@ -1,0 +1,19 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml ./
+
+# Install uv and dependencies
+RUN pip install uv && \
+    uv pip install --system -r pyproject.toml
+
+# Copy application code
+COPY src/ ./src/
+
+# Expose API port
+EXPOSE 8000
+
+# Run the API server
+CMD ["python", "-m", "src.api.grafana_api"]

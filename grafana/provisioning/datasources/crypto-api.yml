@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Crypto API
+    type: yesoreyeram-infinity-datasource
+    access: proxy
+    url: http://grafana-api:8000
+    isDefault: true
+    editable: true
+    jsonData:
+      tlsSkipVerify: true

@@ -1,0 +1,19 @@
+[project]
+name = "dec25-bde-int-crypto"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.6",
+    "httpx>=0.28.1",
+    "motor>=3.7.1",
+    "pandas>=3.0.0",
+    "pandas-stubs~=3.0.0",
+    "pydantic>=2.12.5",
+    "pymongo>=4.10.2",
+    "quixstreams>=3.23.2",
+    "requests>=2.32.5",
+    "uvicorn>=0.34.0",
+    "websockets>=16.0",
+]
