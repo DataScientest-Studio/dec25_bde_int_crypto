@@ -11,9 +11,9 @@ import threading
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pymongo import errors
-from quixstreams import Application
 from src.constants import KAFKA_BROKER, KAFKA_TOPIC, MONGODB_URI, MONGODB_DATABASE, MONGODB_COLLECTION_STREAMING
 from src.models.models import KlineMessage
+from src.service.kafka_client import KafkaConfig, KafkaConsumerClient
 
 # Configure logging
 logging.basicConfig(
@@ -51,9 +51,6 @@ class BinanceKlineConsumer:
             db_name: MongoDB database name
             collection_name: MongoDB collection name
         """
-        self.broker_address = broker_address
-        self.topic_name = topic
-        self.consumer_group = consumer_group
         self.mongodb_uri = mongodb_uri
         self.db_name = db_name
         self.collection_name = collection_name
@@ -67,15 +64,17 @@ class BinanceKlineConsumer:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._loop_thread: Optional[threading.Thread] = None
 
-        # Initialize QuixStreams application
-        self.app = Application(
+        # Initialize Kafka consumer using abstraction
+        kafka_config = KafkaConfig(
             broker_address=broker_address,
+            topic=topic,
             consumer_group=consumer_group,
-            auto_offset_reset="earliest",  # Start from beginning if no offset
+            auto_offset_reset="earliest",
             loglevel="INFO"
         )
+        self.kafka_client = KafkaConsumerClient(kafka_config)
+        self.kafka_client.connect()
 
-        self.topic = self.app.topic(topic, value_deserializer="json")
         logger.info(
             f"Consumer initialized: broker={broker_address}, "
             f"topic={topic}, group={consumer_group}"
@@ -227,10 +226,18 @@ class BinanceKlineConsumer:
         import time
         time.sleep(1)
 
-        logger.info(f"Starting consumer for topic: {self.topic_name}")
+        # Get Kafka application and topic from client
+        app = self.kafka_client.get_application()
+        topic = self.kafka_client.get_topic()
+
+        if not app or not topic:
+            logger.error("Kafka client not properly initialized")
+            return
+
+        logger.info(f"Starting consumer for topic: {self.kafka_client.config.topic}")
 
         # Create a streaming dataframe
-        sdf = self.app.dataframe(self.topic)
+        sdf = app.dataframe(topic)
 
         # Process each message - apply function to each row
         sdf = sdf.update(lambda row: self.process_message(row))
@@ -238,7 +245,7 @@ class BinanceKlineConsumer:
         # Run the application
         try:
             logger.info("Consumer is running... Press Ctrl+C to stop")
-            self.app.run(sdf)
+            app.run(sdf)
         except KeyboardInterrupt:
             logger.info("Consumer stopped by user")
         except Exception as e:

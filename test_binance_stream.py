@@ -7,7 +7,7 @@ import os
 # Add the project root to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from src.service.stream_producer import BinanceWebSocketCollector
+from src.service.stream import BinanceWebSocketCollector
 from src.constants import SYMBOL, INTERVAL
 
 async def test_stream():
