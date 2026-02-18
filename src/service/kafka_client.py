@@ -58,6 +58,7 @@ class KafkaProducerClient:
         self.config = config
         self.app: Optional[Application] = None
         self.topic = None
+        self._producer_ctx = None
         self.producer = None
 
     def connect(self):
@@ -74,7 +75,8 @@ class KafkaProducerClient:
             )
 
             self.topic = self.app.topic(self.config.topic, value_serializer="json")
-            self.producer = self.app.get_producer()
+            self._producer_ctx = self.app.get_producer()
+            self.producer = self._producer_ctx.__enter__()
 
             logger.info("Kafka producer initialized successfully")
             return True
@@ -83,6 +85,7 @@ class KafkaProducerClient:
             logger.error(f"Failed to initialize Kafka producer: {e}", exc_info=True)
             self.app = None
             self.topic = None
+            self._producer_ctx = None
             self.producer = None
             return False
 
@@ -98,7 +101,7 @@ class KafkaProducerClient:
         Returns:
             bool: True if successful, False otherwise
         """
-        if not self.producer or not self.topic:
+        if self.producer is None or self.topic is None:
             logger.error("Producer not initialized")
             return False
 
@@ -131,9 +134,15 @@ class KafkaProducerClient:
 
     def close(self):
         """Close producer and cleanup resources."""
-        if self.producer:
-            self.producer.flush()
-            logger.info("Kafka producer flushed and closed")
+        if self._producer_ctx is not None:
+            try:
+                self._producer_ctx.__exit__(None, None, None)
+                logger.info("Kafka producer flushed and closed")
+            except Exception as e:
+                logger.warning(f"Error closing Kafka producer: {e}")
+            finally:
+                self._producer_ctx = None
+                self.producer = None
 
 
 class KafkaConsumerClient:
