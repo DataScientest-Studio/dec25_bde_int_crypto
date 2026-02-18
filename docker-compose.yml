@@ -114,7 +114,7 @@ services:
     environment:
       - MONGODB_URI=mongodb://admin:password@mongodb:27017/
       - MONGODB_DATABASE=crypto_data
-      - MONGODB_COLLECTION=klines
+      - MONGODB_COLLECTION=klines_streaming
 
   grafana:
     image: grafana/grafana:11.4.0
