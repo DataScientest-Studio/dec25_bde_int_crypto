@@ -1,106 +1,84 @@
-# Binance Historical Klines Collector (BTCUSDT)
+# Binance Klines Collector (BTCUSDT)
 
-Collects Binance Spot **OHLCV (klines)** for **5m / 15m**, writes **raw + processed** datasets to disk, and **upserts** processed records into MongoDB.
+Collects Binance Spot **OHLCV (klines)** for **5m / 15m**, stores **raw + processed** datasets on disk, and upserts processed rows into MongoDB.
+(Note: OHLCV = Open, High, Low, Close, Volume.)
 
-Goals:
-- **Incremental**: don’t re-download / re-process what already exists
+**Principles**
+- **Incremental**: only fetch/process missing ranges
 - **Idempotent**: safe to re-run (no duplicates)
-- **Traceable**: `print(...)` statements show control flow and progress
+- **Traceable**: `print(...)` logs show progress + decisions
 
 ---
 
 ## Pipeline
 
-On each run:
-
-1) **Read state** from range files (`*.range.json`)
-2) **Fetch missing raw data only** (async HTTP + pagination)
-3) **Process missing data only** (validate + map raw rows → typed objects)
-4) **Upsert new processed rows** into MongoDB (bulk upsert)
-
-You’ll see prints for:
-- existing vs requested ranges
-- missing ranges
-- fetch page progress
-- counts fetched/processed/skipped/upserted
+1. Load covered windows from `*.range.json`
+2. Fetch **missing raw** klines only (async + pagination)
+3. Process **missing raw rows** only (validate → typed model)
+4. Bulk **upsert** processed rows into MongoDB
 
 ---
 
-## Outputs
+## Outputs (auto-created)
 
-Created automatically:
-
-### Raw (compact, close to Binance payload)
+### Raw (close to Binance payload)
 - `data/raw_data/{SYMBOL}_{INTERVAL}.json`
 - `data/raw_data/{SYMBOL}_{INTERVAL}.csv`
 - `data/raw_data/{SYMBOL}_{INTERVAL}.range.json`
 
-Raw JSON is stored as **array-of-arrays**:
+Raw JSON format (array-of-arrays):
 ```json
 [ open_time_ms, "open", "high", "low", "close", "volume",
   close_time_ms, "quote_volume", trades, "taker_buy_base", "taker_buy_quote", "0" ]
 ````
 
-### Processed (validated, stable schema)
+### Processed (validated schema)
 
 * `data/processed_data/{SYMBOL}_{INTERVAL}.json`
 * `data/processed_data/{SYMBOL}_{INTERVAL}.csv`
 * `data/processed_data/{SYMBOL}_{INTERVAL}.range.json`
 
-Processed JSON is **array-of-objects** with named fields.
+Processed JSON format: array-of-objects (named fields).
 
 ---
 
 ## MongoDB
 
-Writes to:
+Default DB: `crypto_data`
 
-* DB: `crypto_data` (default)
-* Collection: `klines` (default)
+Collections:
+
+* **Historical**: `klines_historical`
+* **Streaming**: `klines_streaming`
 
 Idempotency:
 
-* Unique index on `(symbol, interval, open_time_ms)`
-* Bulk **upsert** prevents duplicates on re-runs
+### Unique index: `(symbol, interval, open_time_ms)`:
+**Why unique index `(symbol, interval, open_time_ms)`?**
 
----
+Because a candle is uniquely identified by its **symbol + interval + open time**. The unique index:
 
-## Code layout
+* **Prevents duplicates** (re-runs, retries, pagination overlap)
+* Enables **idempotent upserts** (same candle updates instead of inserts)
+* Helps **concurrent writers** (historical + streaming) stay consistent
+* Speeds up **time-range queries** for a series
 
-* `src/models/binance_models.py`
+We use a **partial** unique index (`open_time_ms > 0`) to ignore legacy docs missing `open_time_ms`.
 
-  * `HistoricalKline` (Option B): timestamps stored as **unix ms ints**
-  * Validates OHLC consistency + non-negative volumes
-  * `from_binance(...)`, `to_processed_row()`, `to_mongo_doc()`
+### Bulk **upsert** on re-runs prevents duplicates
 
-* `src/service/binance_historical_collector.py`
-
-  * Orchestrates: read state → fetch missing → process missing → upsert
-
-* `src/service/mongo_repository.py`
-
-  * Ensures indexes + bulk upsert
-
----
-
-## Libraries added
-
-* **httpx**: async HTTP client used to call Binance REST efficiently (connection pooling, timeouts, clean async API).
-* **motor**: async MongoDB driver (non-blocking DB writes in an async pipeline; wraps PyMongo cleanly).
-
----
-
-## Configuration
+## Config
 
 ```bash
 export BINANCE_SYMBOL="BTCUSDT"
 export BINANCE_INTERVAL="5m"          # allowed: 5m, 15m
-export BINANCE_START_DATE="2023-02-08"
-export BINANCE_END_DATE="2026-02-08"  # optional; if unset, uses "now"
+export BINANCE_START_DATE="2026-01-01"
+export BINANCE_END_DATE=""            # optional; if unset uses "now"
 
 export MONGODB_URI="mongodb://admin:password@localhost:27017/"
 export MONGODB_DATABASE="crypto_data"
-export MONGODB_COLLECTION="klines"
+export MONGODB_COLLECTION_HISTORICAL="klines_historical"
+export MONGODB_COLLECTION_STREAMING="klines_streaming"
 ```
 
 ---
@@ -115,4 +93,4 @@ uv run python -m src.service.binance_historical_collector
 
 ## Incremental behavior
 
-If you already downloaded a superset (e.g., 2023–2026), requesting a subset (e.g., 2025 only) should show `missing=[]` and **skip refetch/reprocess**.
+If disk already contains a superset (e.g., 2023–2026) and you request a subset (e.g., 2025), it should compute `missing=[]` and skip fetch + processing.

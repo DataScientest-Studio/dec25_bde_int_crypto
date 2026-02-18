@@ -16,7 +16,7 @@ from src.constants import (
     END_DATE,
     INTERVAL,
     MAX_LIMIT,
-    MONGODB_COLLECTION,
+    MONGODB_COLLECTION_HISTORICAL,
     MONGODB_DATABASE,
     MONGODB_URI,
     PAGE_SLEEP_S,
@@ -24,6 +24,7 @@ from src.constants import (
     RAW_DATA_DIRNAME,
     START_DATE,
     SYMBOL,
+    MONGODB_COLLECTION_STREAMING,
 )
 from src.models.models import HistoricalKline, SUPPORTED_INTERVALS
 from src.service.mongo_repository import AsyncKlineStore
@@ -351,7 +352,7 @@ async def upsert_missing_to_mongo(klines: List[HistoricalKline]) -> None:
         print_step("[mongo] nothing to upsert")
         return
 
-    store = AsyncKlineStore(uri=MONGODB_URI, database=MONGODB_DATABASE, collection=MONGODB_COLLECTION)
+    store = AsyncKlineStore(uri=MONGODB_URI, database=MONGODB_DATABASE, collection=MONGODB_COLLECTION_HISTORICAL)
     await store.ensure_indexes()
     try:
         stats = await store.upsert_many(klines)

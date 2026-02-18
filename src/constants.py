@@ -23,4 +23,5 @@ PROCESSED_DATA_DIRNAME: str = os.getenv("PROCESSED_DATA_DIRNAME", "processed_dat
 # MongoDB
 MONGODB_URI: str = os.getenv("MONGODB_URI", "mongodb://admin:password@localhost:27017/")
 MONGODB_DATABASE: str = os.getenv("MONGODB_DATABASE", "crypto_data")
-MONGODB_COLLECTION: str = os.getenv("MONGODB_COLLECTION", "klines")
+MONGODB_COLLECTION_HISTORICAL: str = os.getenv("MONGODB_COLLECTION_HISTORICAL", "klines_historical")
+MONGODB_COLLECTION_STREAMING: str = os.getenv("MONGODB_COLLECTION_STREAMING", "klines_streaming")
