@@ -373,7 +373,7 @@ def pick_request_range() -> Tuple[int, int]:
     return start_ms, end_ms
 
 
-async def run() -> None:
+async def run_pipeline() -> None:
     if INTERVAL not in SUPPORTED_INTERVALS:
         raise ValueError(f"Interval must be one of {sorted(SUPPORTED_INTERVALS)}")
 
@@ -444,7 +444,7 @@ async def run() -> None:
 
 
 def main() -> None:
-    asyncio.run(run())
+    asyncio.run(run_pipeline())
 
 
 if __name__ == "__main__":
