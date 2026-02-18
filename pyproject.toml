@@ -11,6 +11,7 @@ dependencies = [
     "pandas>=3.0.0",
     "pandas-stubs~=3.0.0",
     "pydantic>=2.12.5",
+    "pydantic-settings>=2.11.0",
     "pymongo>=4.10.2",
     "quixstreams>=3.23.2",
     "requests>=2.32.5",

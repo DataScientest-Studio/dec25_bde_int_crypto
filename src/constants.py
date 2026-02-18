@@ -8,6 +8,8 @@ import os
 BASE_URL: str = os.getenv("BINANCE_KLINES_URL", "https://api.binance.com/api/v3/klines")
 MAX_LIMIT: int = int(os.getenv("BINANCE_MAX_LIMIT", "1000"))
 PAGE_SLEEP_S: float = float(os.getenv("BINANCE_PAGE_SLEEP", "0.25"))
+KAFKA_BROKER = "localhost:19092"
+KAFKA_TOPIC = "binance-klines"
 
 # Defaults for the collector
 SYMBOL: str = os.getenv("BINANCE_SYMBOL", "BTCUSDT")

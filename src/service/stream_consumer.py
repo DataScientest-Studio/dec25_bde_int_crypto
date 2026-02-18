@@ -2,14 +2,17 @@
 Redpanda Consumer for Binance Kline Messages.
 
 This module consumes real-time kline data from Redpanda using QuixStreams
-and persists the messages to MongoDB.
+and persists the messages to MongoDB using Motor (async driver).
 """
 
+import asyncio
 import logging
-from pymongo import MongoClient, errors
-from pymongo.collection import Collection
+import threading
+from typing import Optional
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
+from pymongo import errors
 from quixstreams import Application
-from src.constants import KAFKA_BROKER, KAFKA_TOPIC, MONGODB_URI, MONGODB_DATABASE, MONGODB_COLLECTION
+from src.constants import KAFKA_BROKER, KAFKA_TOPIC, MONGODB_URI, MONGODB_DATABASE, MONGODB_COLLECTION_STREAMING
 from src.models.models import KlineMessage
 
 # Configure logging
@@ -24,7 +27,8 @@ class BinanceKlineConsumer:
     """
     Consumer for Binance kline messages from Redpanda.
 
-    Consumes messages from the binance-klines topic and persists them to MongoDB.
+    Consumes messages from the binance-klines topic and persists them to MongoDB
+    using Motor (async driver) with proper connection pooling and error handling.
     """
 
     def __init__(
@@ -34,7 +38,7 @@ class BinanceKlineConsumer:
         consumer_group: str = "binance-consumer-group",
         mongodb_uri: str = MONGODB_URI,
         db_name: str = MONGODB_DATABASE,
-        collection_name: str = MONGODB_COLLECTION
+        collection_name: str = MONGODB_COLLECTION_STREAMING
     ):
         """
         Initialize the Redpanda consumer with MongoDB persistence.
@@ -50,6 +54,18 @@ class BinanceKlineConsumer:
         self.broker_address = broker_address
         self.topic_name = topic
         self.consumer_group = consumer_group
+        self.mongodb_uri = mongodb_uri
+        self.db_name = db_name
+        self.collection_name = collection_name
+
+        # Motor client (async) - will be initialized in async context
+        self.mongo_client: Optional[AsyncIOMotorClient] = None
+        self.collection: Optional[AsyncIOMotorCollection] = None
+        self._indexes_created = False
+
+        # Event loop for async operations (runs in background thread)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
 
         # Initialize QuixStreams application
         self.app = Application(
@@ -65,32 +81,54 @@ class BinanceKlineConsumer:
             f"topic={topic}, group={consumer_group}"
         )
 
-        # Initialize MongoDB connection
-        try:
-            self.mongo_client = MongoClient(mongodb_uri)
-            self.db = self.mongo_client[db_name]
-            self.collection: Collection = self.db[collection_name]
+    async def _init_mongo(self):
+        """Initialize Motor client and ensure indexes (async)."""
+        if self.mongo_client is not None:
+            return
 
-            # Create indexes for better query performance
-            # Unique index on event_time to ensure each message is stored only once
-            self.collection.create_index([("event_time", 1)], unique=True)
-            self.collection.create_index([("symbol", 1), ("interval", 1), ("timestamp", -1)])
-            self.collection.create_index([("event_timestamp", -1)])
-            self.collection.create_index([("timestamp", -1)])
-            self.collection.create_index([("is_closed", 1)])
+        try:
+            self.mongo_client = AsyncIOMotorClient(self.mongodb_uri)
+            db = self.mongo_client[self.db_name]
+            self.collection = db[self.collection_name]
+
+            # Verify connection by pinging the server
+            await self.mongo_client.admin.command('ping')
 
             logger.info(
-                f"MongoDB connected: uri={mongodb_uri}, "
-                f"db={db_name}, collection={collection_name}"
+                f"MongoDB connected: uri={self.mongodb_uri}, "
+                f"db={self.db_name}, collection={self.collection_name}"
             )
-        except errors.ConnectionError as e:
+
+            # Create indexes for better query performance
+            await self._ensure_indexes()
+
+        except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
             raise
+
+    async def _ensure_indexes(self):
+        """Create indexes for better query performance."""
+        if self._indexes_created or self.collection is None:
+            return
+
+        try:
+            # Unique index on event_time to ensure each message is stored only once
+            await self.collection.create_index([("event_time", 1)], unique=True)
+            await self.collection.create_index([("symbol", 1), ("interval", 1), ("timestamp", -1)])
+            await self.collection.create_index([("event_timestamp", -1)])
+            await self.collection.create_index([("timestamp", -1)])
+            await self.collection.create_index([("is_closed", 1)])
+
+            self._indexes_created = True
+            logger.info("MongoDB indexes created successfully")
+        except Exception as e:
+            logger.warning(f"Error creating indexes: {e}")
 
     def process_message(self, message_value: dict):
         """
         Process a kline message: validate, persist to MongoDB, and print.
 
+        This is a synchronous wrapper that schedules async MongoDB operations.
         Args:
             message_value: Message value (kline data dict)
         """
@@ -98,25 +136,11 @@ class BinanceKlineConsumer:
             # Validate message using Pydantic model
             kline_msg = KlineMessage(**message_value)
 
-            # Persist ALL messages to MongoDB (no upsert - insert each message)
-            try:
-                mongo_doc = kline_msg.to_mongo_doc()
+            # Schedule async MongoDB insert in background event loop
+            if self._loop is not None:
+                asyncio.run_coroutine_threadsafe(self._async_insert(kline_msg), self._loop)
 
-                # Insert the document - unique index on event_time prevents duplicates
-                result = self.collection.insert_one(mongo_doc)
-
-                logger.debug(
-                    f"Inserted message: {kline_msg.symbol} @ {kline_msg.timestamp} "
-                    f"(event_time={kline_msg.event_time}, _id={result.inserted_id})"
-                )
-
-            except errors.DuplicateKeyError:
-                # Message already exists (duplicate event_time) - skip silently
-                logger.debug(f"Duplicate message skipped: event_time={kline_msg.event_time}")
-            except errors.PyMongoError as e:
-                logger.error(f"MongoDB error: {e}")
-
-            # Print to console
+            # Print to console immediately (non-blocking)
             status = "CLOSED" if kline_msg.is_closed else "UPDATE"
             print(
                 f"[{status}] {kline_msg.symbol} {kline_msg.interval} | "
@@ -130,18 +154,79 @@ class BinanceKlineConsumer:
             logger.error(f"Error processing message: {e}")
             logger.error(f"Message value: {message_value}")
 
-    def cleanup(self):
-        """Clean up MongoDB connection."""
-        if hasattr(self, 'mongo_client'):
+    async def _async_insert(self, kline_msg: KlineMessage):
+        """
+        Async insert operation to MongoDB with proper error handling.
+
+        Args:
+            kline_msg: Validated kline message
+        """
+        if self.collection is None:
+            logger.error("MongoDB collection not initialized")
+            return
+
+        try:
+            mongo_doc = kline_msg.to_mongo_doc()
+
+            # Insert the document - unique index on event_time prevents duplicates
+            result = await self.collection.insert_one(mongo_doc)
+
+            logger.debug(
+                f"Inserted message: {kline_msg.symbol} @ {kline_msg.timestamp} "
+                f"(event_time={kline_msg.event_time}, _id={result.inserted_id})"
+            )
+
+        except errors.DuplicateKeyError:
+            # Message already exists (duplicate event_time) - skip silently
+            logger.debug(f"Duplicate message skipped: event_time={kline_msg.event_time}")
+        except Exception as e:
+            logger.error(f"MongoDB insert error: {e}")
+
+    async def _cleanup(self):
+        """Clean up MongoDB connection (async)."""
+        if self.mongo_client is not None:
             self.mongo_client.close()
             logger.info("MongoDB connection closed")
+
+    def _start_event_loop(self):
+        """Start event loop in background thread for async operations."""
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+
+        # Initialize MongoDB in this loop
+        self._loop.run_until_complete(self._init_mongo())
+
+        # Run the loop forever
+        self._loop.run_forever()
+
+    def _stop_event_loop(self):
+        """Stop background event loop and cleanup."""
+        if self._loop is not None:
+            # Schedule cleanup
+            asyncio.run_coroutine_threadsafe(self._cleanup(), self._loop)
+
+            # Stop the loop
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+            # Wait for thread to finish
+            if self._loop_thread is not None:
+                self._loop_thread.join(timeout=5)
 
     def run(self):
         """
         Run the consumer and process messages from Redpanda.
 
         This method blocks and continuously processes messages.
+        Sets up async event loop for MongoDB operations in background thread.
         """
+        # Start event loop in background thread
+        self._loop_thread = threading.Thread(target=self._start_event_loop, daemon=True)
+        self._loop_thread.start()
+
+        # Wait for MongoDB to initialize
+        import time
+        time.sleep(1)
+
         logger.info(f"Starting consumer for topic: {self.topic_name}")
 
         # Create a streaming dataframe
@@ -160,7 +245,8 @@ class BinanceKlineConsumer:
             logger.error(f"Consumer error: {e}")
             raise
         finally:
-            self.cleanup()
+            # Cleanup
+            self._stop_event_loop()
 
 
 def main():
