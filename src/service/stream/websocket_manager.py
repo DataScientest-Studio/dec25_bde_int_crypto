@@ -10,6 +10,7 @@ import os
 import ssl
 from typing import Optional
 import websockets
+import websockets.connection
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class WebSocketManager:
         self.base_url = base_url
         self.ssl_verify = ssl_verify
         self.ca_file = ca_file or os.getenv("BINANCE_CA_FILE")
-        self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self.websocket: Optional[websockets.ClientConnection] = None
         self.ssl_context = self._create_ssl_context()
 
     def _create_ssl_context(self) -> ssl.SSLContext:
@@ -79,7 +80,7 @@ class WebSocketManager:
         symbol_lower = symbol.lower()
         return f"{self.base_url}/{symbol_lower}@kline_{interval}"
 
-    async def connect(self, url: str) -> websockets.WebSocketClientProtocol:
+    async def connect(self, url: str) -> websockets.ClientConnection:
         """
         Establish WebSocket connection.
 
@@ -132,7 +133,7 @@ class WebSocketManager:
         Returns:
             True if connected, False otherwise
         """
-        return self.websocket is not None and self.websocket.open
+        return self.websocket is not None and self.websocket.state == websockets.connection.State.OPEN
 
     async def receive_message(self) -> str:
         """
