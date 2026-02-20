@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, AsyncGenerator, Sequence
 
-from src.models.models import HistoricalKline
+from fastapi import Depends
+from motor.motor_asyncio import AsyncIOMotorCollection
 
-
-@dataclass(frozen=True)
-class UpsertStats:
-    requested: int
-    matched: int
-    modified: int
-    upserted: int
+from src.database import get_historical_mongo_client, get_streaming_mongo_client
+from src.database.mongo_client import MongoClient
+from src.models.models import HistoricalKline, UpsertStats
 
 
 class AsyncKlineStore:
@@ -29,17 +25,17 @@ class AsyncKlineStore:
     - We use `open_time_ms > 0` instead, which is valid for our domain and widely supported.
     """
 
-    def __init__(self, *, uri: str, database: str, collection: str) -> None:
-        try:
-            from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError("Motor is required: uv add motor pymongo") from e
+    def __init__(self, mongo_client: MongoClient) -> None:
+        self.mongo_client = mongo_client
+        self.collection: AsyncIOMotorCollection = None
 
-        self.client = AsyncIOMotorClient(uri)
-        self.collection = self.client[database][collection]
+    async def initialize(self) -> None:
+        """Initialize the store by getting the collection from the client."""
+        await self.mongo_client.initialize()
+        self.collection = self.mongo_client.get_collection()
 
     async def close(self) -> None:
-        self.client.close()
+        await self.mongo_client.close()
 
     async def ensure_indexes(self) -> None:
         """Create the unique kline index (safe to call repeatedly)."""
@@ -75,6 +71,9 @@ class AsyncKlineStore:
         if not klines:
             return UpsertStats(0, 0, 0, 0)
 
+        # Ensure indexes exist before upserting (idempotent operation)
+        await self.ensure_indexes()
+
         from pymongo import UpdateOne  # type: ignore
 
         ops: list[Any] = []
@@ -89,3 +88,27 @@ class AsyncKlineStore:
             modified=getattr(result, "modified_count", 0),
             upserted=len(getattr(result, "upserted_ids", {}) or {}),
         )
+
+
+async def get_historical_kline_store(
+    mongo_client: MongoClient = Depends(get_historical_mongo_client),
+) -> AsyncGenerator[AsyncKlineStore, None]:
+    """dependency for historical kline store."""
+    store = AsyncKlineStore(mongo_client)
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await store.close()
+
+
+async def get_streaming_kline_store(
+    mongo_client: MongoClient = Depends(get_streaming_mongo_client),
+) -> AsyncGenerator[AsyncKlineStore, None]:
+    """dependency for streaming kline store."""
+    store = AsyncKlineStore(mongo_client)
+    await store.initialize()
+    try:
+        yield store
+    finally:
+        await store.close()
