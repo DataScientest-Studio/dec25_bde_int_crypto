@@ -30,7 +30,7 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install --system -r <(uv pip compile pyproject.toml)
-        uv pip install --system pytest pytest-asyncio pytest-cov
+        uv pip install --system pytest pytest-asyncio pytest-cov 'testcontainers[mongodb]'
 
     - name: Run tests with pytest
       run: |
