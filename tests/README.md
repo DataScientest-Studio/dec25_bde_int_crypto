@@ -36,12 +36,14 @@ This directory contains unit and integration tests for the project.
 tests/
 ├── __init__.py
 ├── README.md
+├── conftest.py                  # Shared fixtures (MongoDB testcontainers)
 ├── mappers/
 │   ├── __init__.py
 │   ├── fixtures.py              # Reusable test fixtures
 │   └── test_kline_mapper.py     # Tests for KlineMapper (100% coverage)
 └── service/
     ├── __init__.py
+    ├── test_mongo_repository.py # Tests for AsyncKlineStore with MongoDB
     └── stream/
         ├── __init__.py
         ├── fixtures.py          # Reusable test fixtures
@@ -51,6 +53,11 @@ tests/
 ### Fixtures
 
 Test fixtures are extracted to separate files for reusability:
+
+#### Shared Fixtures (`tests/conftest.py`)
+  - `mongo_container`: Session-scoped MongoDB testcontainer
+  - `mongo_client`: Function-scoped initialized MongoClient
+  - `kline_store`: Function-scoped initialized AsyncKlineStore
 
 #### Mappers Fixtures (`tests/mappers/fixtures.py`)
   - `valid_websocket_message`: Valid open candle WebSocket message
@@ -96,14 +103,61 @@ Fixtures are automatically loaded using pytest plugins mechanism.
 - ✅ Symbol and interval extraction
 - ✅ Custom mapper dependency injection
 
+### AsyncKlineStore: **9 tests** (with MongoDB Testcontainers)
+
+- ✅ Inserting new klines
+- ✅ Updating existing klines (upsert)
+- ✅ Handling empty lists
+- ✅ Creating unique indexes
+- ✅ Preventing duplicate keys
+- ✅ Idempotent index creation
+- ✅ Automatic index creation on upsert
+- ✅ Mixed insert and update operations
+- ✅ Test isolation (clean state between tests)
+
+## MongoDB Testcontainers
+
+This project uses [Testcontainers](https://testcontainers.com/) for integration testing with MongoDB.
+
+### Prerequisites
+- **Docker** must be installed and running
+- Dependencies installed via `uv sync`
+
+### How it works
+1. A MongoDB container is started once per test session
+2. Each test gets an initialized `MongoClient` and `AsyncKlineStore`
+3. Collections are cleaned between tests for isolation
+4. Container is automatically stopped after tests complete
+
+### Running MongoDB tests
+
+```bash
+# Run MongoDB repository tests
+uv run pytest tests/service/test_mongo_repository.py -v
+
+# Run all tests (including MongoDB integration tests)
+uv run pytest
+```
+
+### Troubleshooting
+
+**Docker not running:**
+```
+Error: Cannot connect to the Docker daemon
+```
+Solution: Start Docker Desktop or your Docker daemon
+
+**Slow first run:**
+The first test run may be slow as Docker pulls the MongoDB image. Subsequent runs are much faster.
+
 ## Installing Test Dependencies
 
 ```bash
-uv pip install pytest pytest-asyncio pytest-cov
+uv sync
 ```
 
-Or install all dev dependencies:
-
-```bash
-uv pip install -e ".[dev]"
-```
+This installs all dependencies including:
+- `pytest` - Testing framework
+- `pytest-asyncio` - Async test support
+- `testcontainers[mongodb]` - MongoDB testcontainers
+- `pytest-cov` - Coverage reporting

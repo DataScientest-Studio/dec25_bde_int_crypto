@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -325,3 +327,23 @@ class KlineMessage(BaseModel):
             "trade_count": self.trade_count,
             "is_closed": self.is_closed,
         }
+
+
+@dataclass(frozen=True)
+class UpsertStats:
+    requested: int
+    matched: int
+    modified: int
+    upserted: int
+
+
+@dataclass(frozen=True)
+class DataPaths:
+    raw_dir: Path
+    processed_dir: Path
+    raw_json: Path
+    raw_csv: Path
+    raw_range: Path
+    processed_json: Path
+    processed_csv: Path
+    processed_range: Path

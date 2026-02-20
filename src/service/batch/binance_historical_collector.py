@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import csv
 import json
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Sequence, Tuple
@@ -24,22 +23,10 @@ from src.constants import (
     RAW_DATA_DIRNAME,
     START_DATE,
     SYMBOL,
-    MONGODB_COLLECTION_STREAMING,
 )
-from src.models.models import HistoricalKline, SUPPORTED_INTERVALS
-from src.service.mongo_repository import AsyncKlineStore
-
-
-@dataclass(frozen=True)
-class DataPaths:
-    raw_dir: Path
-    processed_dir: Path
-    raw_json: Path
-    raw_csv: Path
-    raw_range: Path
-    processed_json: Path
-    processed_csv: Path
-    processed_range: Path
+from src.models.models import HistoricalKline, SUPPORTED_INTERVALS, DataPaths
+from src.database.mongo_client import MongoClient
+from src.database.mongo_repository import AsyncKlineStore
 
 
 def print_step(msg: str) -> None:
@@ -352,8 +339,9 @@ async def upsert_missing_to_mongo(klines: List[HistoricalKline]) -> None:
         print_step("[mongo] nothing to upsert")
         return
 
-    store = AsyncKlineStore(uri=MONGODB_URI, database=MONGODB_DATABASE, collection=MONGODB_COLLECTION_HISTORICAL)
-    await store.ensure_indexes()
+    client = MongoClient(uri=MONGODB_URI, database=MONGODB_DATABASE, collection=MONGODB_COLLECTION_HISTORICAL)
+    store = AsyncKlineStore(client)
+    await store.initialize()
     try:
         stats = await store.upsert_many(klines)
         print_step(
