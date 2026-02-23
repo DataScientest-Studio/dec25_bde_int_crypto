@@ -16,7 +16,8 @@ from typing import Callable, Optional
 import websockets
 from src.models.models import KlineData
 from src.mappers import KlineMapper
-from src.constants import SYMBOL, INTERVAL, KAFKA_BROKER, KAFKA_TOPIC
+from src.config.kafka_settings import get_settings as get_kafka_settings
+from src.constants import SYMBOL, INTERVAL
 from src.service.kafka_client import KafkaConfig, KafkaProducerClient
 from src.service.stream.message_processor import MessageProcessor, MessageValidationError
 from src.service.stream.websocket_manager import WebSocketManager, WebSocketConnectionError
@@ -42,8 +43,8 @@ class BinanceWebSocketCollector:
         symbol: str = SYMBOL,
         interval: str = INTERVAL,
         callback: Optional[Callable[[KlineData], None]] = None,
-        kafka_broker: str = KAFKA_BROKER,
-        kafka_topic: str = KAFKA_TOPIC,
+        kafka_broker: Optional[str] = None,
+        kafka_topic: Optional[str] = None,
         enable_kafka: bool = True,
         mapper: Optional[KlineMapper] = None,
         ws_base_url: str = "wss://stream.binance.com:9443/ws"
@@ -76,9 +77,10 @@ class BinanceWebSocketCollector:
         # Initialize Kafka producer using abstraction
         self.enable_kafka = enable_kafka
         if self.enable_kafka:
+            kafka_settings = get_kafka_settings()
             kafka_config = KafkaConfig(
-                broker_address=kafka_broker,
-                topic=kafka_topic,
+                broker_address=kafka_broker or kafka_settings.kafka_broker,
+                topic=kafka_topic or kafka_settings.kafka_topic,
                 loglevel="DEBUG"
             )
             self.kafka_client = KafkaProducerClient(kafka_config)

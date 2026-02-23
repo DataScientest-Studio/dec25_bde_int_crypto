@@ -2,10 +2,12 @@
 
 import json
 from quixstreams import Application
+from src.config.kafka_settings import get_settings
 
 # Configuration
-KAFKA_BROKER = "localhost:19092"
-KAFKA_TOPIC = "binance-klines"
+kafka_settings = get_settings()
+KAFKA_BROKER = kafka_settings.kafka_broker
+KAFKA_TOPIC = kafka_settings.kafka_topic
 
 print(f"Connecting to Kafka broker: {KAFKA_BROKER}")
 print(f"Topic: {KAFKA_TOPIC}")

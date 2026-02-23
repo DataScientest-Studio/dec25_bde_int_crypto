@@ -9,23 +9,18 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import httpx
 
+from src.config.data_settings import get_settings as get_data_settings
 from src.constants import (
     BASE_URL,
-    DATA_DIR,
     END_DATE,
     INTERVAL,
     MAX_LIMIT,
-    MONGODB_COLLECTION_HISTORICAL,
-    MONGODB_DATABASE,
-    MONGODB_URI,
     PAGE_SLEEP_S,
-    PROCESSED_DATA_DIRNAME,
-    RAW_DATA_DIRNAME,
     START_DATE,
     SYMBOL,
 )
 from src.models.models import HistoricalKline, SUPPORTED_INTERVALS, DataPaths
-from src.database.mongo_client import MongoClient
+from src.database import get_historical_mongo_client, MongoClient
 from src.database.mongo_repository import AsyncKlineStore
 
 
@@ -43,9 +38,10 @@ def ensure_dirs(paths: DataPaths) -> None:
 
 
 def build_paths(symbol: str, interval: str) -> DataPaths:
-    base = Path(DATA_DIR)
-    raw_dir = base / RAW_DATA_DIRNAME
-    processed_dir = base / PROCESSED_DATA_DIRNAME
+    data_settings = get_data_settings()
+    base = Path(data_settings.data_dir)
+    raw_dir = base / data_settings.raw_data_dirname
+    processed_dir = base / data_settings.processed_data_dirname
     stem = f"{symbol}_{interval}"
     return DataPaths(
         raw_dir=raw_dir,
@@ -334,12 +330,11 @@ def write_processed_files(processed_rows: List[dict], paths: DataPaths) -> None:
             w.writerow(r)
 
 
-async def upsert_missing_to_mongo(klines: List[HistoricalKline]) -> None:
+async def upsert_missing_to_mongo(klines: List[HistoricalKline], client: MongoClient) -> None:
     if not klines:
         print_step("[mongo] nothing to upsert")
         return
 
-    client = MongoClient(uri=MONGODB_URI, database=MONGODB_DATABASE, collection=MONGODB_COLLECTION_HISTORICAL)
     store = AsyncKlineStore(client)
     await store.initialize()
     try:
@@ -426,7 +421,8 @@ async def run_pipeline() -> None:
             )
 
     # --- MONGO ---
-    await upsert_missing_to_mongo(new_models)
+    async for client in get_historical_mongo_client():
+        await upsert_missing_to_mongo(new_models, client)
 
     print_step("[main] done")
 
