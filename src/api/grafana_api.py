@@ -6,18 +6,17 @@ using the Infinity datasource plugin.
 """
 
 import logging
-import os
 from datetime import datetime, timezone
-from typing import List, Optional
 
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pymongo import MongoClient
 
-# Get configuration from environment variables
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://admin:password@mongodb:27017/")
-MONGODB_DATABASE = os.getenv("MONGODB_DATABASE", "crypto_data")
-MONGODB_COLLECTION = os.getenv("MONGODB_COLLECTION", "klines")
+from src.config.mongo_settings import get_settings
+
+# Get configuration from mongo settings
+mongo_settings = get_settings()
 
 # Configure logging
 logging.basicConfig(
@@ -39,16 +38,16 @@ app.add_middleware(
 )
 
 # MongoDB connection
-logger.info(f"Connecting to MongoDB: {MONGODB_URI}")
-mongo_client = MongoClient(MONGODB_URI)
-db = mongo_client[MONGODB_DATABASE]
-collection = db[MONGODB_COLLECTION]
+logger.info(f"Connecting to MongoDB: {mongo_settings.mongodb_uri}")
+mongo_client = MongoClient(mongo_settings.mongodb_uri)
+db = mongo_client[mongo_settings.mongodb_database]
+collection = db[mongo_settings.mongodb_collection_historical]
 
 
 @app.get("/")
 def root():
     """Health check endpoint."""
-    return {"status": "ok", "message": "Grafana MongoDB API", "mongodb_uri": MONGODB_URI}
+    return {"status": "ok", "message": "Grafana MongoDB API", "mongodb_uri": mongo_settings.mongodb_uri}
 
 
 @app.get("/search")
@@ -170,11 +169,7 @@ def annotations():
 
 def main():
     """Run the API server."""
-    import uvicorn
     logger.info(f"Starting Grafana API server on http://0.0.0.0:8000")
-    logger.info(f"MongoDB URI: {MONGODB_URI}")
-    logger.info(f"MongoDB Database: {MONGODB_DATABASE}")
-    logger.info(f"MongoDB Collection: {MONGODB_COLLECTION}")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
