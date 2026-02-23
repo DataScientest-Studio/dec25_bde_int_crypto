@@ -347,3 +347,20 @@ class DataPaths:
     processed_json: Path
     processed_csv: Path
     processed_range: Path
+
+class PredictionRequest(BaseModel):
+    """Request model for price prediction."""
+    symbol: str = "BTCUSDT"
+    interval: str = "5m"
+    steps: int = 12  # Number of future steps to predict
+
+
+class PredictionResponse(BaseModel):
+    """Response model for price prediction."""
+    symbol: str
+    interval: str
+    current_price: float
+    predictions: list[dict]
+    model_name: str
+    confidence: float
+    generated_at: datetime
