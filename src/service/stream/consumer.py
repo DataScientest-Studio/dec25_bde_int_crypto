@@ -11,7 +11,8 @@ import threading
 from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pymongo import errors
-from src.constants import KAFKA_BROKER, KAFKA_TOPIC, MONGODB_URI, MONGODB_DATABASE, MONGODB_COLLECTION_STREAMING
+from src.config.kafka_settings import get_settings as get_kafka_settings
+from src.config.mongo_settings import get_settings as get_mongo_settings
 from src.models.models import KlineMessage
 from src.service.kafka_client import KafkaConfig, KafkaConsumerClient
 
@@ -33,12 +34,12 @@ class BinanceKlineConsumer:
 
     def __init__(
         self,
-        broker_address: str = KAFKA_BROKER,
-        topic: str = KAFKA_TOPIC,
+        broker_address: Optional[str] = None,
+        topic: Optional[str] = None,
         consumer_group: str = "binance-consumer-group",
-        mongodb_uri: str = MONGODB_URI,
-        db_name: str = MONGODB_DATABASE,
-        collection_name: str = MONGODB_COLLECTION_STREAMING
+        mongodb_uri: Optional[str] = None,
+        db_name: Optional[str] = None,
+        collection_name: Optional[str] = None
     ):
         """
         Initialize the Redpanda consumer with MongoDB persistence.
@@ -51,9 +52,12 @@ class BinanceKlineConsumer:
             db_name: MongoDB database name
             collection_name: MongoDB collection name
         """
-        self.mongodb_uri = mongodb_uri
-        self.db_name = db_name
-        self.collection_name = collection_name
+        kafka_settings = get_kafka_settings()
+        mongo_settings = get_mongo_settings()
+
+        self.mongodb_uri = mongodb_uri or mongo_settings.mongodb_uri
+        self.db_name = db_name or mongo_settings.mongodb_database
+        self.collection_name = collection_name or mongo_settings.mongodb_collection_streaming
 
         # Motor client (async) - will be initialized in async context
         self.mongo_client: Optional[AsyncIOMotorClient] = None
@@ -66,8 +70,8 @@ class BinanceKlineConsumer:
 
         # Initialize Kafka consumer using abstraction
         kafka_config = KafkaConfig(
-            broker_address=broker_address,
-            topic=topic,
+            broker_address=broker_address or kafka_settings.kafka_broker,
+            topic=topic or kafka_settings.kafka_topic,
             consumer_group=consumer_group,
             auto_offset_reset="earliest",
             loglevel="INFO"
@@ -76,8 +80,8 @@ class BinanceKlineConsumer:
         self.kafka_client.connect()
 
         logger.info(
-            f"Consumer initialized: broker={broker_address}, "
-            f"topic={topic}, group={consumer_group}"
+            f"Consumer initialized: broker={kafka_config.broker_address}, "
+            f"topic={kafka_config.topic}, group={consumer_group}"
         )
 
     async def _init_mongo(self):
