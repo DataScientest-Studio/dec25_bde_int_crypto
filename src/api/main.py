@@ -20,8 +20,7 @@ mongo_settings = get_settings()
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="Crypto Data API",
     version="1.0.0",
-    description="API for cryptocurrency data visualization and price prediction"
+    description="API for cryptocurrency data visualization and price prediction",
 )
 
 # Enable CORS
@@ -56,16 +55,16 @@ def root():
         "endpoints": {
             "grafana": "/grafana/*",
             "prediction": "/predict/*",
-            "docs": "/docs"
-        }
+            "docs": "/docs",
+        },
     }
 
 
 def main():
     """Run the API server."""
-    logger.info(f"Starting Crypto Data API server on http://0.0.0.0:8000")
+    logger.info("Starting Crypto Data API server on http://0.0.0.0:8000")
     logger.info(f"MongoDB URI: {mongo_settings.mongodb_uri}")
-    logger.info(f"Interactive docs available at: http://0.0.0.0:8000/docs")
+    logger.info("Interactive docs available at: http://0.0.0.0:8000/docs")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 

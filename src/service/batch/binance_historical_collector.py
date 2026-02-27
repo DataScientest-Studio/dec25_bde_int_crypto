@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +19,9 @@ from src.constants import (
     MAX_LIMIT,
     PAGE_SLEEP_S,
     START_DATE,
-    SYMBOL, RAW_CSV_HEADER, PROCESSED_CSV_HEADER,
+    SYMBOL,
+    RAW_CSV_HEADER,
+    PROCESSED_CSV_HEADER,
 )
 from src.models.models import HistoricalKline, SUPPORTED_INTERVALS, DataPaths
 from src.database import get_historical_mongo_client, MongoClient
@@ -31,6 +32,7 @@ from src.database.mongo_repository import AsyncKlineStore
 # Logging helper
 # ---------------------------------------------------------------------------
 
+
 def print_step(msg: str) -> None:
     print(msg, flush=True)
 
@@ -38,6 +40,7 @@ def print_step(msg: str) -> None:
 # ---------------------------------------------------------------------------
 # Gap — replaces bare Tuple[int, int] throughout the codebase
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Gap:
@@ -55,11 +58,14 @@ class Gap:
 # RangeStore — consolidates all range read/write/infer logic
 # ---------------------------------------------------------------------------
 
+
 class RangeStore:
     def __init__(self, path: Path) -> None:
         self._path = path
 
-    def load(self, fallback_rows: Optional[Sequence[Sequence[Any]]] = None) -> Optional[Tuple[int, int]]:
+    def load(
+        self, fallback_rows: Optional[Sequence[Sequence[Any]]] = None
+    ) -> Optional[Tuple[int, int]]:
         """Load range from file; fall back to inferring from rows if absent."""
         if self._path.exists():
             data = json.loads(self._path.read_text())
@@ -69,7 +75,9 @@ class RangeStore:
         return None
 
     def save(self, start_ms: int, end_ms: int) -> None:
-        self._path.write_text(json.dumps({"start_ms": start_ms, "end_ms": end_ms}, indent=2))
+        self._path.write_text(
+            json.dumps({"start_ms": start_ms, "end_ms": end_ms}, indent=2)
+        )
         print_step(f"[range] saved {self._path} -> ({start_ms}, {end_ms})")
 
     @staticmethod
@@ -83,7 +91,10 @@ class RangeStore:
 # Gap computation
 # ---------------------------------------------------------------------------
 
-def compute_gaps(request_start: int, request_end: int, have: Optional[Tuple[int, int]]) -> List[Gap]:
+
+def compute_gaps(
+    request_start: int, request_end: int, have: Optional[Tuple[int, int]]
+) -> List[Gap]:
     """Return the gaps between what we have and what we need."""
     if have is None:
         return [Gap(request_start, request_end)]
@@ -134,6 +145,7 @@ def serialize_processed_csv(rows: Sequence[dict]) -> str:
 # File writers (thin I/O wrappers around serializers)
 # ---------------------------------------------------------------------------
 
+
 def ensure_dirs(paths: DataPaths) -> None:
     paths.raw_dir.mkdir(parents=True, exist_ok=True)
     paths.processed_dir.mkdir(parents=True, exist_ok=True)
@@ -159,6 +171,7 @@ def write_processed_files(rows: Sequence[dict], paths: DataPaths) -> None:
 # Merge helpers
 # ---------------------------------------------------------------------------
 
+
 def merge_raw(existing: List[List[Any]], new_rows: List[List[Any]]) -> List[List[Any]]:
     by_open: dict[int, List[Any]] = {}
     for r in (existing or []) + (new_rows or []):
@@ -179,6 +192,7 @@ def merge_processed(existing: List[dict], new_rows: List[dict]) -> List[dict]:
 # HTTP fetch helpers (client is now injected)
 # ---------------------------------------------------------------------------
 
+
 async def fetch_page(
     client: httpx.AsyncClient,
     *,
@@ -189,8 +203,10 @@ async def fetch_page(
     limit: int,
 ) -> List[List[Any]]:
     params: dict[str, Any] = {
-        "symbol": symbol, "interval": interval,
-        "startTime": start_ms, "limit": limit,
+        "symbol": symbol,
+        "interval": interval,
+        "startTime": start_ms,
+        "limit": limit,
     }
     if end_ms is not None:
         params["endTime"] = end_ms
@@ -201,13 +217,17 @@ async def fetch_page(
 
             if resp.status_code in (418, 429):
                 retry_after = resp.headers.get("Retry-After")
-                sleep_s = float(retry_after) if retry_after else min(2 ** attempt, 30.0)
-                print_step(f"[fetch] rate limited (status={resp.status_code}) sleeping {sleep_s}s")
+                sleep_s = float(retry_after) if retry_after else min(2**attempt, 30.0)
+                print_step(
+                    f"[fetch] rate limited (status={resp.status_code}) sleeping {sleep_s}s"
+                )
                 await asyncio.sleep(sleep_s)
                 continue
 
             if 500 <= resp.status_code < 600:
-                raise httpx.HTTPStatusError("server error", request=resp.request, response=resp)
+                raise httpx.HTTPStatusError(
+                    "server error", request=resp.request, response=resp
+                )
 
             resp.raise_for_status()
             data = resp.json()
@@ -215,7 +235,12 @@ async def fetch_page(
                 raise ValueError(f"Unexpected response type: {type(data)}")
             return data
 
-        except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError, ValueError) as e:
+        except (
+            httpx.TimeoutException,
+            httpx.TransportError,
+            httpx.HTTPStatusError,
+            ValueError,
+        ) as e:
             sleep_s = min(0.5 * (2 ** (attempt - 1)), 10.0)
             print_step(f"[fetch] failed attempt {attempt}/6: {e!r} sleep {sleep_s}s")
             await asyncio.sleep(sleep_s)
@@ -271,6 +296,7 @@ async def fetch_gap(
 # Processing
 # ---------------------------------------------------------------------------
 
+
 def preprocess_gaps(
     rows: Sequence[Sequence[Any]],
     *,
@@ -302,7 +328,9 @@ def preprocess_gaps(
         if not in_gaps(open_ms):
             continue
         try:
-            out.append(HistoricalKline.from_binance(symbol=symbol, interval=interval, raw=r))
+            out.append(
+                HistoricalKline.from_binance(symbol=symbol, interval=interval, raw=r)
+            )
         except Exception as e:
             skipped += 1
             print_step(f"[process] skip open_time_ms={open_ms}: {e}")
@@ -314,6 +342,7 @@ def preprocess_gaps(
 # ---------------------------------------------------------------------------
 # Mongo upsert
 # ---------------------------------------------------------------------------
+
 
 async def upsert_to_mongo(klines: List[HistoricalKline], client: MongoClient) -> None:
     if not klines:
@@ -335,6 +364,7 @@ async def upsert_to_mongo(klines: List[HistoricalKline], client: MongoClient) ->
 # ---------------------------------------------------------------------------
 # Path builder
 # ---------------------------------------------------------------------------
+
 
 def build_paths(symbol: str, interval: str) -> DataPaths:
     data_settings = get_data_settings()
@@ -371,6 +401,7 @@ def to_unix_ms(value: str) -> int:
 # ---------------------------------------------------------------------------
 # KlinePipeline — owns orchestration; each phase is a private method
 # ---------------------------------------------------------------------------
+
 
 class KlinePipeline:
     def __init__(self, symbol: str, interval: str, start_ms: int, end_ms: int) -> None:
@@ -417,7 +448,9 @@ class KlinePipeline:
             for gap in gaps:
                 print_step(f"[raw] fetching {gap}")
                 rows.extend(
-                    await fetch_gap(client, symbol=self.symbol, interval=self.interval, gap=gap)
+                    await fetch_gap(
+                        client, symbol=self.symbol, interval=self.interval, gap=gap
+                    )
                 )
         return rows
 
@@ -475,9 +508,14 @@ class KlinePipeline:
 # Entry points
 # ---------------------------------------------------------------------------
 
+
 def _pick_request_range() -> Tuple[int, int]:
     start_ms = to_unix_ms(START_DATE)
-    end_ms = to_unix_ms(END_DATE) if END_DATE else int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    end_ms = (
+        to_unix_ms(END_DATE)
+        if END_DATE
+        else int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+    )
     if start_ms >= end_ms:
         raise ValueError("START_DATE must be < END_DATE")
     return start_ms, end_ms
@@ -490,7 +528,9 @@ async def run_pipeline() -> None:
     symbol = SYMBOL.strip().upper()
     start_ms, end_ms = _pick_request_range()
 
-    pipeline = KlinePipeline(symbol=symbol, interval=INTERVAL, start_ms=start_ms, end_ms=end_ms)
+    pipeline = KlinePipeline(
+        symbol=symbol, interval=INTERVAL, start_ms=start_ms, end_ms=end_ms
+    )
     await pipeline.run()
 
 

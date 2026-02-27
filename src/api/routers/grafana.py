@@ -44,7 +44,7 @@ def search():
         "btcusdt_low",
         "btcusdt_volume",
         "btcusdt_quote_volume",
-        "btcusdt_trade_count"
+        "btcusdt_trade_count",
     ]
 
 
@@ -57,7 +57,7 @@ async def query(request: Request):
     """
     try:
         payload = await request.json()
-    except:
+    except Exception:
         payload = {}
 
     logger.info(f"Received payload: {payload}")
@@ -66,7 +66,9 @@ async def query(request: Request):
     range_data = payload.get("range", {})
     max_data_points = payload.get("maxDataPoints", 1000)
 
-    logger.info(f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}")
+    logger.info(
+        f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}"
+    )
 
     results = []
 
@@ -74,9 +76,7 @@ async def query(request: Request):
         target_name = target.get("target", "")
 
         # Build MongoDB query - query ALL data, not just closed candles
-        query_filter = {
-            "symbol": "BTCUSDT"
-        }
+        query_filter = {"symbol": "BTCUSDT"}
 
         # Add time range filter if provided
         if range_data:
@@ -86,8 +86,8 @@ async def query(request: Request):
             if from_time and to_time:
                 # Parse ISO format timestamps
                 try:
-                    from_dt = datetime.fromisoformat(from_time.replace('Z', '+00:00'))
-                    to_dt = datetime.fromisoformat(to_time.replace('Z', '+00:00'))
+                    from_dt = datetime.fromisoformat(from_time.replace("Z", "+00:00"))
+                    to_dt = datetime.fromisoformat(to_time.replace("Z", "+00:00"))
                     query_filter["timestamp"] = {"$gte": from_dt, "$lte": to_dt}
                 except Exception as e:
                     logger.error(f"Error parsing timestamps: {e}")
@@ -100,16 +100,17 @@ async def query(request: Request):
             "btcusdt_low": "low",
             "btcusdt_volume": "volume",
             "btcusdt_quote_volume": "quote_volume",
-            "btcusdt_trade_count": "trade_count"
+            "btcusdt_trade_count": "trade_count",
         }
 
         field = field_map.get(target_name, "close")
 
         # Query MongoDB
-        docs = list(collection.find(
-            query_filter,
-            {"timestamp": 1, field: 1, "_id": 0}
-        ).sort("timestamp", 1).limit(max_data_points))
+        docs = list(
+            collection.find(query_filter, {"timestamp": 1, field: 1, "_id": 0})
+            .sort("timestamp", 1)
+            .limit(max_data_points)
+        )
 
         logger.info(f"Found {len(docs)} documents for {target_name}")
 
@@ -129,10 +130,7 @@ async def query(request: Request):
 
         logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
 
-        results.append({
-            "target": target_name,
-            "datapoints": datapoints
-        })
+        results.append({"target": target_name, "datapoints": datapoints})
 
     return results
 

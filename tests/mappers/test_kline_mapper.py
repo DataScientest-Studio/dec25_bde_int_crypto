@@ -5,12 +5,11 @@ Tests the mapping logic between Binance WebSocket messages and domain models.
 """
 
 import pytest
-from datetime import datetime, timezone
 from src.mappers.kline_mapper import KlineMapper
 from src.models.models import KlineData, KlineMessage
 
 # Import fixtures from separate file
-pytest_plugins = ['tests.mappers.fixtures']
+pytest_plugins = ["tests.mappers.fixtures"]
 
 
 class TestKlineMapperParseWebSocketMessage:
@@ -89,7 +88,7 @@ class TestKlineMapperToKafkaMessage:
         """Test converting KlineData to KlineMessage for open candle."""
         # First parse the message
         kline, is_closed = KlineMapper.parse_websocket_message(valid_websocket_message)
-        event_time = valid_websocket_message['E']
+        event_time = valid_websocket_message["E"]
 
         # Convert to Kafka message
         kafka_msg = KlineMapper.to_kafka_message(kline, event_time, is_closed)
@@ -114,7 +113,7 @@ class TestKlineMapperToKafkaMessage:
         """Test converting KlineData to KlineMessage for closed candle."""
         # First parse the message
         kline, is_closed = KlineMapper.parse_websocket_message(closed_websocket_message)
-        event_time = closed_websocket_message['E']
+        event_time = closed_websocket_message["E"]
 
         # Convert to Kafka message
         kafka_msg = KlineMapper.to_kafka_message(kline, event_time, is_closed)
@@ -198,8 +197,8 @@ class TestKlineMapperEdgeCases:
                 "q": "12.35",
                 "V": "500000.0",
                 "Q": "6.175",
-                "B": "123456"
-            }
+                "B": "123456",
+            },
         }
 
         result = KlineMapper.parse_websocket_message(message)
@@ -232,8 +231,8 @@ class TestKlineMapperEdgeCases:
                 "q": "50000000000.00",
                 "V": "500000000.00",
                 "Q": "25000000000.00",
-                "B": "123456"
-            }
+                "B": "123456",
+            },
         }
 
         result = KlineMapper.parse_websocket_message(message)
@@ -266,8 +265,8 @@ class TestKlineMapperEdgeCases:
                 "q": "0.0",
                 "V": "0.0",
                 "Q": "0.0",
-                "B": "123456"
-            }
+                "B": "123456",
+            },
         }
 
         result = KlineMapper.parse_websocket_message(message)

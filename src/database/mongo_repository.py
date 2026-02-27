@@ -41,7 +41,11 @@ class AsyncKlineStore:
         """Create the unique kline index (safe to call repeatedly)."""
         name = "uniq_symbol_interval_open_time_ms"
         keys = [("symbol", 1), ("interval", 1), ("open_time_ms", 1)]
-        opts = {"unique": True, "name": name, "partialFilterExpression": {"open_time_ms": {"$gt": 0}}}
+        opts = {
+            "unique": True,
+            "name": name,
+            "partialFilterExpression": {"open_time_ms": {"$gt": 0}},
+        }
 
         print(f"[mongo] ensure index {name} (partial unique open_time_ms>0)")
 
@@ -50,9 +54,15 @@ class AsyncKlineStore:
             return
         except Exception as e:
             msg = str(e)
-            conflict = any(s in msg for s in
-                           ("IndexOptionsConflict", "IndexKeySpecsConflict", "same name as the requested index",
-                            "different options"))
+            conflict = any(
+                s in msg
+                for s in (
+                    "IndexOptionsConflict",
+                    "IndexKeySpecsConflict",
+                    "same name as the requested index",
+                    "different options",
+                )
+            )
             if conflict:
                 print(f"[mongo] index conflict -> drop & recreate: {name}")
                 try:
@@ -63,7 +73,9 @@ class AsyncKlineStore:
                 return
 
             if "E11000" in msg or "duplicate key" in msg:
-                print("[mongo] duplicate keys exist for (symbol, interval, open_time_ms)")
+                print(
+                    "[mongo] duplicate keys exist for (symbol, interval, open_time_ms)"
+                )
 
             raise
 

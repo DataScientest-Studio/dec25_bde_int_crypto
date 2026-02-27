@@ -32,8 +32,12 @@ class MongoSettings(BaseSettings):
 
     mongodb_uri: str = Field(validation_alias="MONGODB_URI")
     mongodb_database: str = Field(validation_alias="MONGODB_DATABASE")
-    mongodb_collection_historical: str = Field(validation_alias="MONGODB_COLLECTION_HISTORICAL")
-    mongodb_collection_streaming: str = Field(validation_alias="MONGODB_COLLECTION_STREAMING")
+    mongodb_collection_historical: str = Field(
+        validation_alias="MONGODB_COLLECTION_HISTORICAL"
+    )
+    mongodb_collection_streaming: str = Field(
+        validation_alias="MONGODB_COLLECTION_STREAMING"
+    )
 
 
 @lru_cache(maxsize=1)

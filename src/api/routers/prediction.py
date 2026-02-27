@@ -10,7 +10,6 @@ import random
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 
 from src.models.models import PredictionRequest, PredictionResponse
 
@@ -37,7 +36,9 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
     Returns:
         PredictionResponse with predicted prices
     """
-    logger.info(f"Prediction request: symbol={request.symbol}, interval={request.interval}, steps={request.steps}")
+    logger.info(
+        f"Prediction request: symbol={request.symbol}, interval={request.interval}, steps={request.steps}"
+    )
 
     # Mock current price (in production, this would come from latest data in MongoDB)
     current_price = 50000.0 + random.uniform(-1000, 1000)
@@ -52,7 +53,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
     for i in range(1, request.steps + 1):
         # Calculate timestamp for this prediction
         # 5m interval means 5 minutes per step
-        interval_minutes = int(request.interval.replace('m', ''))
+        interval_minutes = int(request.interval.replace("m", ""))
         prediction_time = base_time + timedelta(minutes=interval_minutes * i)
 
         # Generate mock price with trend and random walk
@@ -62,14 +63,16 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
         # Add some confidence decay (predictions further out are less confident)
         confidence = max(0.5, 0.95 - (i * 0.03))
 
-        predictions.append({
-            "timestamp": prediction_time.isoformat(),
-            "step": i,
-            "predicted_price": round(predicted_price, 2),
-            "confidence": round(confidence, 3),
-            "lower_bound": round(predicted_price * 0.98, 2),
-            "upper_bound": round(predicted_price * 1.02, 2)
-        })
+        predictions.append(
+            {
+                "timestamp": prediction_time.isoformat(),
+                "step": i,
+                "predicted_price": round(predicted_price, 2),
+                "confidence": round(confidence, 3),
+                "lower_bound": round(predicted_price * 0.98, 2),
+                "upper_bound": round(predicted_price * 1.02, 2),
+            }
+        )
 
     response = PredictionResponse(
         symbol=request.symbol,
@@ -78,7 +81,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
         predictions=predictions,
         model_name="MockModel_v1.0",
         confidence=0.75,
-        generated_at=datetime.now(tz=timezone.utc)
+        generated_at=datetime.now(tz=timezone.utc),
     )
 
     logger.info(f"Generated {len(predictions)} predictions for {request.symbol}")
@@ -89,8 +92,10 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
 @router.get("/{symbol}")
 async def predict_get(
     symbol: str,
-    interval: str = Query(default="5m", description="Kline interval (e.g., 5m, 15m, 1h)"),
-    steps: int = Query(default=12, description="Number of future steps to predict")
+    interval: str = Query(
+        default="5m", description="Kline interval (e.g., 5m, 15m, 1h)"
+    ),
+    steps: int = Query(default=12, description="Number of future steps to predict"),
 ) -> PredictionResponse:
     """
     GET endpoint for predictions (convenience wrapper).

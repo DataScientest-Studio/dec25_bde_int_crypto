@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class WebSocketConnectionError(Exception):
     """Raised when WebSocket connection fails."""
+
     pass
 
 
@@ -31,7 +32,7 @@ class WebSocketManager:
         self,
         base_url: str = "wss://stream.binance.com:9443/ws",
         ssl_verify: bool = False,
-        ca_file: Optional[str] = None
+        ca_file: Optional[str] = None,
     ):
         """
         Initialize WebSocket manager.
@@ -133,7 +134,10 @@ class WebSocketManager:
         Returns:
             True if connected, False otherwise
         """
-        return self.websocket is not None and self.websocket.state == websockets.connection.State.OPEN
+        return (
+            self.websocket is not None
+            and self.websocket.state == websockets.connection.State.OPEN
+        )
 
     async def receive_message(self) -> str:
         """
