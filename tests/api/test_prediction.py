@@ -19,8 +19,7 @@ class TestPredictionEndpoints:
     def test_predict_post_default_parameters(self, client):
         """Test POST /predict/ with default parameters."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 12}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 12}
         )
 
         assert response.status_code == 200
@@ -62,8 +61,7 @@ class TestPredictionEndpoints:
     def test_predict_post_custom_steps(self, client):
         """Test POST /predict/ with custom number of steps."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 24}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 24}
         )
 
         assert response.status_code == 200
@@ -79,8 +77,7 @@ class TestPredictionEndpoints:
     def test_predict_post_different_symbol(self, client):
         """Test POST /predict/ with different symbol."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "ETHUSDT", "interval": "5m", "steps": 6}
+            "/predict/", json={"symbol": "ETHUSDT", "interval": "5m", "steps": 6}
         )
 
         assert response.status_code == 200
@@ -92,8 +89,7 @@ class TestPredictionEndpoints:
     def test_predict_post_different_interval(self, client):
         """Test POST /predict/ with different interval."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "15m", "steps": 8}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "15m", "steps": 8}
         )
 
         assert response.status_code == 200
@@ -117,8 +113,7 @@ class TestPredictionEndpoints:
     def test_predict_get_custom_parameters(self, client):
         """Test GET /predict/{symbol} with custom query parameters."""
         response = client.get(
-            "/predict/ETHUSDT",
-            params={"interval": "15m", "steps": 10}
+            "/predict/ETHUSDT", params={"interval": "15m", "steps": 10}
         )
 
         assert response.status_code == 200
@@ -131,8 +126,7 @@ class TestPredictionEndpoints:
     def test_predict_confidence_decay(self, client):
         """Test that confidence decreases for predictions further in the future."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 20}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 20}
         )
 
         assert response.status_code == 200
@@ -151,8 +145,7 @@ class TestPredictionEndpoints:
     def test_predict_timestamps_are_sequential(self, client):
         """Test that prediction timestamps are properly ordered."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 10}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 10}
         )
 
         assert response.status_code == 200
@@ -171,8 +164,7 @@ class TestPredictionEndpoints:
 
         start = time.time()
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 12}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 12}
         )
         elapsed = time.time() - start
 
@@ -183,8 +175,7 @@ class TestPredictionEndpoints:
     def test_predict_prices_are_positive(self, client):
         """Test that all predicted prices are positive."""
         response = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 15}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 15}
         )
 
         assert response.status_code == 200
@@ -198,10 +189,7 @@ class TestPredictionEndpoints:
 
     def test_predict_invalid_json_body(self, client):
         """Test POST /predict/ with invalid JSON body."""
-        response = client.post(
-            "/predict/",
-            json={"invalid_field": "value"}
-        )
+        response = client.post("/predict/", json={"invalid_field": "value"})
 
         # Should still work with defaults since all fields have defaults
         assert response.status_code == 200
@@ -209,12 +197,10 @@ class TestPredictionEndpoints:
     def test_predict_multiple_calls_return_different_results(self, client):
         """Test that multiple calls return different mock predictions (due to randomness)."""
         response1 = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 5}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 5}
         )
         response2 = client.post(
-            "/predict/",
-            json={"symbol": "BTCUSDT", "interval": "5m", "steps": 5}
+            "/predict/", json={"symbol": "BTCUSDT", "interval": "5m", "steps": 5}
         )
 
         assert response1.status_code == 200
