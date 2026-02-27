@@ -1,9 +1,10 @@
 """Tests for AsyncKlineStore using MongoDB testcontainers."""
+
 from decimal import Decimal
 
 import pytest
 
-from src.models.models import HistoricalKline, UpsertStats
+from src.models.models import HistoricalKline
 from src.database.mongo_repository import AsyncKlineStore
 
 
@@ -45,7 +46,9 @@ def sample_klines():
 
 
 @pytest.mark.asyncio
-async def test_upsert_many_inserts_new_klines(kline_store: AsyncKlineStore, sample_klines):
+async def test_upsert_many_inserts_new_klines(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test that upsert_many successfully inserts new klines."""
     stats = await kline_store.upsert_many(sample_klines)
 
@@ -56,7 +59,9 @@ async def test_upsert_many_inserts_new_klines(kline_store: AsyncKlineStore, samp
 
 
 @pytest.mark.asyncio
-async def test_upsert_many_updates_existing_klines(kline_store: AsyncKlineStore, sample_klines):
+async def test_upsert_many_updates_existing_klines(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test that upsert_many updates existing klines with the same key."""
     # First insert
     await kline_store.upsert_many(sample_klines)
@@ -89,11 +94,9 @@ async def test_upsert_many_updates_existing_klines(kline_store: AsyncKlineStore,
     assert stats.upserted == 0
 
     # Verify the data was updated
-    doc = await kline_store.collection.find_one({
-        "symbol": "BTCUSDT",
-        "interval": "5m",
-        "open_time_ms": 1000000
-    })
+    doc = await kline_store.collection.find_one(
+        {"symbol": "BTCUSDT", "interval": "5m", "open_time_ms": 1000000}
+    )
     assert doc is not None
     assert str(doc["open"]) == "51000.00"
 
@@ -128,7 +131,9 @@ async def test_ensure_indexes_creates_unique_index(kline_store: AsyncKlineStore)
 
 
 @pytest.mark.asyncio
-async def test_ensure_indexes_prevents_duplicate_keys(kline_store: AsyncKlineStore, sample_klines):
+async def test_ensure_indexes_prevents_duplicate_keys(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test that the unique index prevents duplicate (symbol, interval, open_time_ms)."""
     await kline_store.ensure_indexes()
 
@@ -172,7 +177,9 @@ async def test_ensure_indexes_idempotent(kline_store: AsyncKlineStore):
 
 
 @pytest.mark.asyncio
-async def test_upsert_many_calls_ensure_indexes_automatically(kline_store: AsyncKlineStore, sample_klines):
+async def test_upsert_many_calls_ensure_indexes_automatically(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test that upsert_many automatically ensures indexes."""
     # Don't manually call ensure_indexes, just upsert
     await kline_store.upsert_many(sample_klines)
@@ -184,7 +191,9 @@ async def test_upsert_many_calls_ensure_indexes_automatically(kline_store: Async
 
 
 @pytest.mark.asyncio
-async def test_upsert_many_mixed_insert_and_update(kline_store: AsyncKlineStore, sample_klines):
+async def test_upsert_many_mixed_insert_and_update(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test upsert_many with a mix of new and existing klines."""
     # Insert first kline
     await kline_store.upsert_many([sample_klines[0]])
@@ -215,7 +224,9 @@ async def test_upsert_many_mixed_insert_and_update(kline_store: AsyncKlineStore,
 
 
 @pytest.mark.asyncio
-async def test_collection_isolation_between_tests(kline_store: AsyncKlineStore, sample_klines):
+async def test_collection_isolation_between_tests(
+    kline_store: AsyncKlineStore, sample_klines
+):
     """Test that the collection is clean for each test (isolation)."""
     # This test should start with an empty collection
     count = await kline_store.collection.count_documents({})

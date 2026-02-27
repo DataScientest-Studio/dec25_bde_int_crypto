@@ -25,6 +25,7 @@ class KafkaConfig:
         auto_offset_reset: Offset reset strategy ('earliest' or 'latest')
         loglevel: Logging level for QuixStreams
     """
+
     broker_address: str
     topic: str
     consumer_group: Optional[str] = None
@@ -70,8 +71,7 @@ class KafkaProducerClient:
             )
 
             self.app = Application(
-                broker_address=self.config.broker_address,
-                loglevel=self.config.loglevel
+                broker_address=self.config.broker_address, loglevel=self.config.loglevel
             )
 
             self.topic = self.app.topic(self.config.topic, value_serializer="json")
@@ -111,9 +111,7 @@ class KafkaProducerClient:
 
             # Produce to Kafka
             self.producer.produce(
-                topic=self.topic.name,
-                key=serialized.key,
-                value=serialized.value
+                topic=self.topic.name, key=serialized.key, value=serialized.value
             )
 
             # Flush if requested
@@ -181,7 +179,7 @@ class KafkaConsumerClient:
                 broker_address=self.config.broker_address,
                 consumer_group=self.config.consumer_group,
                 auto_offset_reset=self.config.auto_offset_reset,
-                loglevel=self.config.loglevel
+                loglevel=self.config.loglevel,
             )
 
             self.topic = self.app.topic(self.config.topic, value_deserializer="json")

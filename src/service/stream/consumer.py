@@ -18,8 +18,7 @@ from src.service.kafka_client import KafkaConfig, KafkaConsumerClient
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,7 @@ class BinanceKlineConsumer:
         consumer_group: str = "binance-consumer-group",
         mongodb_uri: Optional[str] = None,
         db_name: Optional[str] = None,
-        collection_name: Optional[str] = None
+        collection_name: Optional[str] = None,
     ):
         """
         Initialize the Redpanda consumer with MongoDB persistence.
@@ -57,7 +56,9 @@ class BinanceKlineConsumer:
 
         self.mongodb_uri = mongodb_uri or mongo_settings.mongodb_uri
         self.db_name = db_name or mongo_settings.mongodb_database
-        self.collection_name = collection_name or mongo_settings.mongodb_collection_streaming
+        self.collection_name = (
+            collection_name or mongo_settings.mongodb_collection_streaming
+        )
 
         # Motor client (async) - will be initialized in async context
         self.mongo_client: Optional[AsyncIOMotorClient] = None
@@ -74,7 +75,7 @@ class BinanceKlineConsumer:
             topic=topic or kafka_settings.kafka_topic,
             consumer_group=consumer_group,
             auto_offset_reset="earliest",
-            loglevel="INFO"
+            loglevel="INFO",
         )
         self.kafka_client = KafkaConsumerClient(kafka_config)
         self.kafka_client.connect()
@@ -95,7 +96,7 @@ class BinanceKlineConsumer:
             self.collection = db[self.collection_name]
 
             # Verify connection by pinging the server
-            await self.mongo_client.admin.command('ping')
+            await self.mongo_client.admin.command("ping")
 
             logger.info(
                 f"MongoDB connected: uri={self.mongodb_uri}, "
@@ -117,7 +118,9 @@ class BinanceKlineConsumer:
         try:
             # Unique index on event_time to ensure each message is stored only once
             await self.collection.create_index([("event_time", 1)], unique=True)
-            await self.collection.create_index([("symbol", 1), ("interval", 1), ("timestamp", -1)])
+            await self.collection.create_index(
+                [("symbol", 1), ("interval", 1), ("timestamp", -1)]
+            )
             await self.collection.create_index([("event_timestamp", -1)])
             await self.collection.create_index([("timestamp", -1)])
             await self.collection.create_index([("is_closed", 1)])
@@ -141,7 +144,9 @@ class BinanceKlineConsumer:
 
             # Schedule async MongoDB insert in background event loop
             if self._loop is not None:
-                asyncio.run_coroutine_threadsafe(self._async_insert(kline_msg), self._loop)
+                asyncio.run_coroutine_threadsafe(
+                    self._async_insert(kline_msg), self._loop
+                )
 
             # Print to console immediately (non-blocking)
             status = "CLOSED" if kline_msg.is_closed else "UPDATE"
@@ -181,7 +186,9 @@ class BinanceKlineConsumer:
 
         except errors.DuplicateKeyError:
             # Message already exists (duplicate event_time) - skip silently
-            logger.debug(f"Duplicate message skipped: event_time={kline_msg.event_time}")
+            logger.debug(
+                f"Duplicate message skipped: event_time={kline_msg.event_time}"
+            )
         except Exception as e:
             logger.error(f"MongoDB insert error: {e}")
 
@@ -228,6 +235,7 @@ class BinanceKlineConsumer:
 
         # Wait for MongoDB to initialize
         import time
+
         time.sleep(1)
 
         # Get Kafka application and topic from client

@@ -30,7 +30,9 @@ class KafkaSettings(BaseSettings):
         extra="ignore",
     )
 
-    kafka_broker: str = Field(default="localhost:19092", validation_alias="KAFKA_BROKER")
+    kafka_broker: str = Field(
+        default="localhost:19092", validation_alias="KAFKA_BROKER"
+    )
     kafka_topic: str = Field(default="binance-klines", validation_alias="KAFKA_TOPIC")
 
 

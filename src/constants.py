@@ -16,13 +16,32 @@ START_DATE: str = os.getenv("BINANCE_START_DATE", "2025-01-01")
 END_DATE: str | None = os.getenv("BINANCE_END_DATE") or None
 
 RAW_CSV_HEADER = [
-    "open_time_ms", "open", "high", "low", "close", "volume",
-    "close_time_ms", "quote_volume", "trade_count",
-    "taker_buy_base_volume", "taker_buy_quote_volume", "ignore",
+    "open_time_ms",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "close_time_ms",
+    "quote_volume",
+    "trade_count",
+    "taker_buy_base_volume",
+    "taker_buy_quote_volume",
+    "ignore",
 ]
 
 PROCESSED_CSV_HEADER = [
-    "symbol", "interval", "open_time_ms", "close_time_ms",
-    "open", "high", "low", "close", "volume", "quote_volume",
-    "trade_count", "taker_buy_base_volume", "taker_buy_quote_volume",
+    "symbol",
+    "interval",
+    "open_time_ms",
+    "close_time_ms",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "quote_volume",
+    "trade_count",
+    "taker_buy_base_volume",
+    "taker_buy_quote_volume",
 ]

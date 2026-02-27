@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 class MessageValidationError(Exception):
     """Raised when message validation fails."""
+
     pass
 
 
@@ -55,8 +56,7 @@ class MessageProcessor:
             raise MessageValidationError(f"Failed to decode JSON message: {e}") from e
 
     def process_message(
-        self,
-        message_data: Dict[str, Any]
+        self, message_data: Dict[str, Any]
     ) -> Optional[Tuple[KlineMessage, KlineData, bool]]:
         """
         Process parsed WebSocket message and convert to domain models.
@@ -80,11 +80,7 @@ class MessageProcessor:
         except Exception as e:
             raise MessageValidationError(f"Failed to process message: {e}") from e
 
-    def format_kline_log(
-        self,
-        kline: KlineData,
-        is_closed: bool
-    ) -> str:
+    def format_kline_log(self, kline: KlineData, is_closed: bool) -> str:
         """
         Format kline data for logging/display.
 
@@ -105,9 +101,7 @@ class MessageProcessor:
         )
 
     def prepare_kafka_message(
-        self,
-        kline: KlineData,
-        kline_message: KlineMessage
+        self, kline: KlineData, kline_message: KlineMessage
     ) -> Tuple[str, Dict[str, Any]]:
         """
         Prepare message for Kafka publishing.
@@ -123,7 +117,9 @@ class MessageProcessor:
         message_value = kline_message.model_dump()
         return message_key, message_value
 
-    def should_publish_to_kafka(self, is_closed: bool, publish_all: bool = True) -> bool:
+    def should_publish_to_kafka(
+        self, is_closed: bool, publish_all: bool = True
+    ) -> bool:
         """
         Determine if message should be published to Kafka.
 
@@ -154,23 +150,21 @@ class MessageProcessor:
             MessageValidationError: If validation fails
         """
         # Check for required top-level fields in Binance WebSocket kline message
-        required_fields = {'e', 'E', 's', 'k'}
+        required_fields = {"e", "E", "s", "k"}
 
         if not isinstance(message_data, dict):
             raise MessageValidationError("Message must be a dictionary")
 
         missing_fields = required_fields - set(message_data.keys())
         if missing_fields:
-            raise MessageValidationError(
-                f"Missing required fields: {missing_fields}"
-            )
+            raise MessageValidationError(f"Missing required fields: {missing_fields}")
 
         # Check kline data structure
-        if not isinstance(message_data.get('k'), dict):
+        if not isinstance(message_data.get("k"), dict):
             raise MessageValidationError("'k' field must be a dictionary")
 
-        kline_required = {'t', 'o', 'h', 'l', 'c', 'v', 'x'}
-        kline_data = message_data['k']
+        kline_required = {"t", "o", "h", "l", "c", "v", "x"}
+        kline_data = message_data["k"]
         missing_kline_fields = kline_required - set(kline_data.keys())
         if missing_kline_fields:
             raise MessageValidationError(
@@ -193,8 +187,8 @@ class MessageProcessor:
             MessageValidationError: If extraction fails
         """
         try:
-            symbol = message_data['s']
-            interval = message_data['k']['i']
+            symbol = message_data["s"]
+            interval = message_data["k"]["i"]
             return symbol, interval
         except KeyError as e:
             raise MessageValidationError(

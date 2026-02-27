@@ -76,7 +76,9 @@ class HistoricalKline(BaseModel):
     @classmethod
     def validate_interval(cls, v: str) -> str:
         if v not in SUPPORTED_INTERVALS:
-            raise ValueError(f"Unsupported interval: {v!r}. Allowed: {sorted(SUPPORTED_INTERVALS)}")
+            raise ValueError(
+                f"Unsupported interval: {v!r}. Allowed: {sorted(SUPPORTED_INTERVALS)}"
+            )
         return v
 
     @field_validator(
@@ -126,7 +128,9 @@ class HistoricalKline(BaseModel):
         return self
 
     @classmethod
-    def from_binance(cls, *, symbol: str, interval: str, raw: Sequence[Any]) -> "HistoricalKline":
+    def from_binance(
+        cls, *, symbol: str, interval: str, raw: Sequence[Any]
+    ) -> "HistoricalKline":
         """Convert one raw Binance kline array into a validated model."""
         if len(raw) < 11:
             raise ValueError(f"Expected kline array length >= 11, got {len(raw)}")
@@ -149,7 +153,11 @@ class HistoricalKline(BaseModel):
 
     def key(self) -> Dict[str, Any]:
         """Mongo idempotency key."""
-        return {"symbol": self.symbol, "interval": self.interval, "open_time_ms": self.open_time_ms}
+        return {
+            "symbol": self.symbol,
+            "interval": self.interval,
+            "open_time_ms": self.open_time_ms,
+        }
 
     def to_mongo_doc(self) -> Dict[str, Any]:
         """Mongo-friendly document.
@@ -220,7 +228,9 @@ class BinanceKline(BaseModel):
     quote_volume: float = Field(..., description="Quote asset volume")
     trade_count: int = Field(..., description="Number of trades")
     taker_buy_base_volume: float = Field(..., description="Taker buy base asset volume")
-    taker_buy_quote_volume: float = Field(..., description="Taker buy quote asset volume")
+    taker_buy_quote_volume: float = Field(
+        ..., description="Taker buy quote asset volume"
+    )
 
     @field_validator(
         "open",
@@ -292,7 +302,9 @@ class KlineMessage(BaseModel):
 
     model_config = ConfigDict(str_strip_whitespace=True)
 
-    event_time: int = Field(..., description="Event time in milliseconds - unique per message")
+    event_time: int = Field(
+        ..., description="Event time in milliseconds - unique per message"
+    )
     symbol: str = Field(..., description="Trading pair symbol (e.g., BTCUSDT)")
     interval: str = Field(..., description="Kline interval (e.g., 1m, 5m, 1h, 1d)")
     timestamp: str = Field(..., description="Kline timestamp in ISO format")
@@ -348,8 +360,10 @@ class DataPaths:
     processed_csv: Path
     processed_range: Path
 
+
 class PredictionRequest(BaseModel):
     """Request model for price prediction."""
+
     symbol: str = "BTCUSDT"
     interval: str = "5m"
     steps: int = 12  # Number of future steps to predict
@@ -357,6 +371,7 @@ class PredictionRequest(BaseModel):
 
 class PredictionResponse(BaseModel):
     """Response model for price prediction."""
+
     symbol: str
     interval: str
     current_price: float

@@ -1,10 +1,8 @@
-name: Unit Tests
+name: CI Pipeline
 
 on:
   push:
-    branches: [ main, develop, 'scrum-*' ]
   pull_request:
-    branches: [ main, develop, 'scrum-*' ]
 
 jobs:
   test:
@@ -31,6 +29,14 @@ jobs:
       run: |
         uv pip install --system -r <(uv pip compile pyproject.toml)
         uv pip install --system pytest pytest-asyncio pytest-cov 'testcontainers[mongodb]'
+
+    - name: Run ruff linting
+      run: |
+        ruff check .
+
+    - name: Run ruff format check
+      run: |
+        ruff format --check .
 
     - name: Run tests with pytest
       run: |

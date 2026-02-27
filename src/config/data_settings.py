@@ -31,8 +31,12 @@ class DataSettings(BaseSettings):
     )
 
     data_dir: str = Field(default="data", validation_alias="DATA_DIR")
-    raw_data_dirname: str = Field(default="raw_data", validation_alias="RAW_DATA_DIRNAME")
-    processed_data_dirname: str = Field(default="processed_data", validation_alias="PROCESSED_DATA_DIRNAME")
+    raw_data_dirname: str = Field(
+        default="raw_data", validation_alias="RAW_DATA_DIRNAME"
+    )
+    processed_data_dirname: str = Field(
+        default="processed_data", validation_alias="PROCESSED_DATA_DIRNAME"
+    )
 
 
 @lru_cache(maxsize=1)

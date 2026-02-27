@@ -49,40 +49,40 @@ class KlineMapper:
         Returns:
             Tuple of (KlineData, is_closed) or None if parsing fails
         """
-        if message.get('e') != 'kline':
+        if message.get("e") != "kline":
             return None
 
-        kline_data = message.get('k', {})
+        kline_data = message.get("k", {})
 
         # Create BinanceKline from WebSocket data
         binance_kline = BinanceKline(
-            open_time=kline_data['t'],
-            open=float(kline_data['o']),
-            high=float(kline_data['h']),
-            low=float(kline_data['l']),
-            close=float(kline_data['c']),
-            volume=float(kline_data['v']),
-            close_time=kline_data['T'],
-            quote_volume=float(kline_data['q']),
-            trade_count=kline_data['n'],
-            taker_buy_base_volume=float(kline_data['V']),
-            taker_buy_quote_volume=float(kline_data['Q'])
+            open_time=kline_data["t"],
+            open=float(kline_data["o"]),
+            high=float(kline_data["h"]),
+            low=float(kline_data["l"]),
+            close=float(kline_data["c"]),
+            volume=float(kline_data["v"]),
+            close_time=kline_data["T"],
+            quote_volume=float(kline_data["q"]),
+            trade_count=kline_data["n"],
+            taker_buy_base_volume=float(kline_data["V"]),
+            taker_buy_quote_volume=float(kline_data["Q"]),
         )
 
         # Convert to enriched KlineData
         kline = KlineData.from_kline(
-            kline=binance_kline,
-            symbol=kline_data['s'],
-            interval=kline_data['i']
+            kline=binance_kline, symbol=kline_data["s"], interval=kline_data["i"]
         )
 
         # Extract is_closed flag
-        is_closed = kline_data['x']
+        is_closed = kline_data["x"]
 
         return kline, is_closed
 
     @staticmethod
-    def to_kafka_message(kline: KlineData, event_time: int, is_closed: bool) -> KlineMessage:
+    def to_kafka_message(
+        kline: KlineData, event_time: int, is_closed: bool
+    ) -> KlineMessage:
         """
         Convert KlineData to KlineMessage for Kafka publishing.
 
@@ -106,11 +106,13 @@ class KlineMapper:
             volume=kline.volume,
             quote_volume=kline.quote_volume,
             trade_count=kline.trade_count,
-            is_closed=is_closed
+            is_closed=is_closed,
         )
 
     @classmethod
-    def websocket_to_kafka_message(cls, message: dict) -> Optional[tuple[KlineMessage, KlineData, bool]]:
+    def websocket_to_kafka_message(
+        cls, message: dict
+    ) -> Optional[tuple[KlineMessage, KlineData, bool]]:
         """
         One-step conversion from raw WebSocket message to KlineMessage.
 
@@ -128,7 +130,7 @@ class KlineMapper:
             return None
 
         kline, is_closed = result
-        event_time = message.get('E')
+        event_time = message.get("E")
         kafka_message = cls.to_kafka_message(kline, event_time, is_closed)
 
         return kafka_message, kline, is_closed

@@ -1,4 +1,3 @@
-
 import os
 from datetime import datetime
 from typing import Optional
@@ -33,6 +32,7 @@ class StatsResponse(BaseModel):
     first_timestamp: Optional[datetime]
     last_timestamp: Optional[datetime]
 
+
 @app.get("/stats", response_model=StatsResponse)
 def stats(symbol: str = "BTCUSDT"):
     query_filter = {"symbol": symbol}
@@ -52,44 +52,31 @@ def stats(symbol: str = "BTCUSDT"):
 # Charts Endpoint
 @app.get("/charts")
 def charts(
-    symbol: str = "BTCUSDT",
-    field: str = "close",
-    limit: int = Query(50, le=5000)
+    symbol: str = "BTCUSDT", field: str = "close", limit: int = Query(50, le=5000)
 ):
     query_filter = {"symbol": symbol}
 
     docs = list(
-        collection.find(
-            query_filter,
-            {"timestamp": 1, field: 1, "_id": 0}
-        )
+        collection.find(query_filter, {"timestamp": 1, field: 1, "_id": 0})
         .sort([("timestamp", -1)], -1)
         .limit(limit)
     )
 
-    docs.reverse() 
+    docs.reverse()
     datapoints = [
         [doc[field], int(doc["timestamp"].timestamp() * 1000)]
-        for doc in docs if field in doc
+        for doc in docs
+        if field in doc
     ]
 
-    return [
-        {
-            "target": f"{symbol}_{field}",
-            "datapoints": datapoints
-        }
-    ]
-
+    return [{"target": f"{symbol}_{field}", "datapoints": datapoints}]
 
 
 # Predict Endpoint
 @app.get("/predict")
 def predict(symbol: str = "BTCUSDT"):
     docs = list(
-        collection.find(
-            {"symbol": symbol},
-            {"close": 1, "_id": 0}
-        )
+        collection.find({"symbol": symbol}, {"close": 1, "_id": 0})
         .sort([("timestamp", -1)], -1)
         .limit(1)
     )

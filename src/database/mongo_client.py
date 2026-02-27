@@ -1,10 +1,7 @@
-import asyncio
 from dataclasses import dataclass, field
 from typing import Optional
 
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
-
-from src.config.mongo_settings import MongoSettings
 
 
 @dataclass
@@ -26,7 +23,7 @@ class MongoClient:
         self._collection = db[self.collection]
 
         # Ping the server to verify connection
-        await self._client.admin.command('ping')
+        await self._client.admin.command("ping")
         self._initialized = True
 
     def build_collection(self) -> AsyncIOMotorCollection:
@@ -40,7 +37,9 @@ class MongoClient:
     def get_collection(self) -> AsyncIOMotorCollection:
         """Get the initialized collection."""
         if not self._initialized:
-            raise RuntimeError("MongoClient not initialized. Call 'await client.initialize()' first.")
+            raise RuntimeError(
+                "MongoClient not initialized. Call 'await client.initialize()' first."
+            )
         return self._collection
 
     async def close(self) -> None:
