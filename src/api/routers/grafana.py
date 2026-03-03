@@ -21,6 +21,7 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
+
 def get_collection():
     """Lazy-load MongoDB collection to avoid import-time initialization."""
     mongo_settings = get_settings()
