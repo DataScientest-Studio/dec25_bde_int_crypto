@@ -16,4 +16,4 @@ COPY src/ ./src/
 EXPOSE 8000
 
 # Run the API server
-CMD ["python", "-m", "src.api.grafana_api"]
+CMD ["python", "-m", "src.api.main"]

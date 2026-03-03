@@ -13,19 +13,23 @@ Refactored to separate concerns:
 import asyncio
 import logging
 from typing import Callable, Optional
-import websockets
 from src.models.models import KlineData
 from src.mappers import KlineMapper
 from src.config.kafka_settings import get_settings as get_kafka_settings
 from src.constants import SYMBOL, INTERVAL
 from src.service.kafka_client import KafkaConfig, KafkaProducerClient
-from src.service.stream.message_processor import MessageProcessor, MessageValidationError
-from src.service.stream.websocket_manager import WebSocketManager, WebSocketConnectionError
+from src.service.stream.message_processor import (
+    MessageProcessor,
+    MessageValidationError,
+)
+from src.service.stream.websocket_manager import (
+    WebSocketManager,
+    WebSocketConnectionError,
+)
 
 # Configure logging
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -47,7 +51,7 @@ class BinanceWebSocketCollector:
         kafka_topic: Optional[str] = None,
         enable_kafka: bool = True,
         mapper: Optional[KlineMapper] = None,
-        ws_base_url: str = "wss://stream.binance.com:9443/ws"
+        ws_base_url: str = "wss://stream.binance.com:9443/ws",
     ):
         """
         Initialize the WebSocket collector.
@@ -81,11 +85,13 @@ class BinanceWebSocketCollector:
             kafka_config = KafkaConfig(
                 broker_address=kafka_broker or kafka_settings.kafka_broker,
                 topic=kafka_topic or kafka_settings.kafka_topic,
-                loglevel="DEBUG"
+                loglevel="DEBUG",
             )
             self.kafka_client = KafkaProducerClient(kafka_config)
             if not self.kafka_client.connect():
-                logger.warning("Kafka producer initialization failed, will continue without Kafka")
+                logger.warning(
+                    "Kafka producer initialization failed, will continue without Kafka"
+                )
                 self.kafka_client = None
         else:
             self.kafka_client = None
@@ -96,7 +102,9 @@ class BinanceWebSocketCollector:
         try:
             await self.ws_manager.connect(self.ws_url)
             self.running = True
-            logger.info(f"Connected to Binance WebSocket: {self.symbol}@kline_{self.interval}")
+            logger.info(
+                f"Connected to Binance WebSocket: {self.symbol}@kline_{self.interval}"
+            )
         except WebSocketConnectionError as e:
             logger.error(f"Failed to connect: {e}")
             raise
@@ -110,7 +118,6 @@ class BinanceWebSocketCollector:
         if self.kafka_client:
             self.kafka_client.close()
             logger.info("Kafka producer flushed and closed")
-
 
     async def stream(self):
         """
@@ -128,7 +135,9 @@ class BinanceWebSocketCollector:
                     raw_message = await self.ws_manager.receive_message()
 
                     # Parse message
-                    message_data = self.message_processor.parse_websocket_message(raw_message)
+                    message_data = self.message_processor.parse_websocket_message(
+                        raw_message
+                    )
 
                     # Process message to domain models
                     result = self.message_processor.process_message(message_data)
@@ -137,12 +146,16 @@ class BinanceWebSocketCollector:
                         kline_message, kline, is_closed = result
 
                         # Format and log
-                        log_msg = self.message_processor.format_kline_log(kline, is_closed)
+                        log_msg = self.message_processor.format_kline_log(
+                            kline, is_closed
+                        )
                         logger.info(log_msg)
 
                         # Publish to Kafka if enabled
                         if self.kafka_client is not None:
-                            await self._publish_to_kafka(kline, kline_message, is_closed)
+                            await self._publish_to_kafka(
+                                kline, kline_message, is_closed
+                            )
 
                         # Execute callback if provided
                         if self.callback:
@@ -177,7 +190,9 @@ class BinanceWebSocketCollector:
             )
 
             # Publish
-            if self.kafka_client.produce(key=message_key, value=message_value, flush=True):
+            if self.kafka_client.produce(
+                key=message_key, value=message_value, flush=True
+            ):
                 status = "CLOSED" if is_closed else "UPDATE"
                 logger.info(f"✓ Published to Kafka: {kline.symbol} -> {status}")
             else:
@@ -198,15 +213,15 @@ async def main():
     def on_kline_received(kline: KlineData):
         """Callback function to handle received kline data."""
         # Example: save to database, send to message queue, etc.
-        is_closed = getattr(kline, 'is_closed', False)
+        is_closed = getattr(kline, "is_closed", False)
         if is_closed:
-            logger.info(f"✅ Candle closed at {kline.timestamp}: Close price = {kline.close}")
+            logger.info(
+                f"✅ Candle closed at {kline.timestamp}: Close price = {kline.close}"
+            )
 
     # Create collector instance
     collector = BinanceWebSocketCollector(
-        symbol=SYMBOL,
-        interval=INTERVAL,
-        callback=on_kline_received
+        symbol=SYMBOL, interval=INTERVAL, callback=on_kline_received
     )
 
     try:

@@ -31,8 +31,8 @@ def valid_websocket_message():
             "q": "525000.00",
             "V": "5.25",
             "Q": "262500.00",
-            "B": "123456"
-        }
+            "B": "123456",
+        },
     }
 
 
@@ -60,8 +60,8 @@ def closed_websocket_message():
             "q": "305000.00",
             "V": "50.0",
             "Q": "152500.00",
-            "B": "789012"
-        }
+            "B": "789012",
+        },
     }
 
 
@@ -71,7 +71,7 @@ def invalid_event_type_message():
     return {
         "e": "trade",  # Not a kline event
         "E": 1234567890000,
-        "s": "BTCUSDT"
+        "s": "BTCUSDT",
     }
 
 
@@ -85,5 +85,5 @@ def malformed_message():
         "k": {
             "t": 1234567800000,
             # Missing required fields
-        }
+        },
     }

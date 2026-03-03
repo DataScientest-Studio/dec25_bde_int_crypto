@@ -1,4 +1,5 @@
 """Shared pytest fixtures for all tests."""
+
 import pytest
 from testcontainers.mongodb import MongoDbContainer
 
@@ -19,7 +20,7 @@ async def mongo_client(mongo_container):
     client = MongoClient(
         uri=mongo_container.get_connection_url(),
         database="test_db",
-        collection="test_klines"
+        collection="test_klines",
     )
     await client.initialize()
 

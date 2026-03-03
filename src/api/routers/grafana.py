@@ -1,56 +1,36 @@
 """
-FastAPI server to provide Grafana-compatible JSON API for MongoDB data.
+Grafana router for time-series data visualization.
 
-This API serves kline data from MongoDB in a format that Grafana can consume
-using the Infinity datasource plugin.
+This module provides Grafana-compatible JSON API endpoints for MongoDB data.
+Compatible with Grafana Infinity datasource plugin.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, Request
 from pymongo import MongoClient
 
 from src.config.mongo_settings import get_settings
 
-# Get configuration from mongo settings
-mongo_settings = get_settings()
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(title="Grafana MongoDB API", version="1.0.0")
-
-# Enable CORS for Grafana
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+router = APIRouter(
+    prefix="/grafana",
+    tags=["grafana"],
+    responses={404: {"description": "Not found"}},
 )
 
+# Get MongoDB configuration
+mongo_settings = get_settings()
+
 # MongoDB connection
-logger.info(f"Connecting to MongoDB: {mongo_settings.mongodb_uri}")
 mongo_client = MongoClient(mongo_settings.mongodb_uri)
 db = mongo_client[mongo_settings.mongodb_database]
 collection = db[mongo_settings.mongodb_collection_historical]
 
 
-@app.get("/")
-def root():
-    """Health check endpoint."""
-    return {"status": "ok", "message": "Grafana MongoDB API", "mongodb_uri": mongo_settings.mongodb_uri}
-
-
-@app.get("/search")
+@router.get("/search")
 def search():
     """
     Return available metrics for Grafana to query.
@@ -64,11 +44,11 @@ def search():
         "btcusdt_low",
         "btcusdt_volume",
         "btcusdt_quote_volume",
-        "btcusdt_trade_count"
+        "btcusdt_trade_count",
     ]
 
 
-@app.post("/query")
+@router.post("/query")
 async def query(request: Request):
     """
     Query endpoint for Grafana.
@@ -77,7 +57,7 @@ async def query(request: Request):
     """
     try:
         payload = await request.json()
-    except:
+    except Exception:
         payload = {}
 
     logger.info(f"Received payload: {payload}")
@@ -86,7 +66,9 @@ async def query(request: Request):
     range_data = payload.get("range", {})
     max_data_points = payload.get("maxDataPoints", 1000)
 
-    logger.info(f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}")
+    logger.info(
+        f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}"
+    )
 
     results = []
 
@@ -94,9 +76,7 @@ async def query(request: Request):
         target_name = target.get("target", "")
 
         # Build MongoDB query - query ALL data, not just closed candles
-        query_filter = {
-            "symbol": "BTCUSDT"
-        }
+        query_filter = {"symbol": "BTCUSDT"}
 
         # Add time range filter if provided
         if range_data:
@@ -106,8 +86,8 @@ async def query(request: Request):
             if from_time and to_time:
                 # Parse ISO format timestamps
                 try:
-                    from_dt = datetime.fromisoformat(from_time.replace('Z', '+00:00'))
-                    to_dt = datetime.fromisoformat(to_time.replace('Z', '+00:00'))
+                    from_dt = datetime.fromisoformat(from_time.replace("Z", "+00:00"))
+                    to_dt = datetime.fromisoformat(to_time.replace("Z", "+00:00"))
                     query_filter["timestamp"] = {"$gte": from_dt, "$lte": to_dt}
                 except Exception as e:
                     logger.error(f"Error parsing timestamps: {e}")
@@ -120,16 +100,17 @@ async def query(request: Request):
             "btcusdt_low": "low",
             "btcusdt_volume": "volume",
             "btcusdt_quote_volume": "quote_volume",
-            "btcusdt_trade_count": "trade_count"
+            "btcusdt_trade_count": "trade_count",
         }
 
         field = field_map.get(target_name, "close")
 
         # Query MongoDB
-        docs = list(collection.find(
-            query_filter,
-            {"timestamp": 1, field: 1, "_id": 0}
-        ).sort("timestamp", 1).limit(max_data_points))
+        docs = list(
+            collection.find(query_filter, {"timestamp": 1, field: 1, "_id": 0})
+            .sort("timestamp", 1)
+            .limit(max_data_points)
+        )
 
         logger.info(f"Found {len(docs)} documents for {target_name}")
 
@@ -149,15 +130,12 @@ async def query(request: Request):
 
         logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
 
-        results.append({
-            "target": target_name,
-            "datapoints": datapoints
-        })
+        results.append({"target": target_name, "datapoints": datapoints})
 
     return results
 
 
-@app.get("/annotations")
+@router.get("/annotations")
 def annotations():
     """
     Annotations endpoint for Grafana.
@@ -165,13 +143,3 @@ def annotations():
     Can be used to show events/markers on the chart.
     """
     return []
-
-
-def main():
-    """Run the API server."""
-    logger.info(f"Starting Grafana API server on http://0.0.0.0:8000")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-if __name__ == "__main__":
-    main()

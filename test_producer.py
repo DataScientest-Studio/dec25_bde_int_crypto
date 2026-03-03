@@ -1,6 +1,5 @@
 """Simple test to verify QuixStreams producer works with Redpanda"""
 
-import json
 from quixstreams import Application
 from src.config.kafka_settings import get_settings
 
@@ -13,10 +12,7 @@ print(f"Connecting to Kafka broker: {KAFKA_BROKER}")
 print(f"Topic: {KAFKA_TOPIC}")
 
 # Create QuixStreams application
-app = Application(
-    broker_address=KAFKA_BROKER,
-    loglevel="DEBUG"
-)
+app = Application(broker_address=KAFKA_BROKER, loglevel="DEBUG")
 
 # Get topic
 topic = app.topic(KAFKA_TOPIC, value_serializer="json")
@@ -32,7 +28,7 @@ for i in range(5):
         "test_id": i,
         "symbol": "BTCUSDT",
         "price": 50000.0 + i,
-        "message": f"Test message {i}"
+        "message": f"Test message {i}",
     }
 
     key = f"test-{i}"
@@ -42,11 +38,7 @@ for i in range(5):
     # Serialize using topic's serializer
     serialized = topic.serialize(key=key, value=message)
 
-    producer.produce(
-        topic=topic.name,
-        key=serialized.key,
-        value=serialized.value
-    )
+    producer.produce(topic=topic.name, key=serialized.key, value=serialized.value)
 
     print(f"Message {i} sent")
 

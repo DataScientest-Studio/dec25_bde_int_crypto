@@ -1,10 +1,8 @@
-name: Unit Tests
+name: CI Pipeline
 
 on:
   push:
-    branches: [ main, develop, 'scrum-*' ]
   pull_request:
-    branches: [ main, develop, 'scrum-*' ]
 
 jobs:
   test:
@@ -32,6 +30,14 @@ jobs:
         uv pip install --system -r <(uv pip compile pyproject.toml)
         uv pip install --system pytest pytest-asyncio pytest-cov 'testcontainers[mongodb]'
 
+    - name: Run ruff linting
+      run: |
+        ruff check .
+
+    - name: Run ruff format check
+      run: |
+        ruff format --check .
+
     - name: Run tests with pytest
       run: |
         pytest tests/ -v --cov=src --cov-report=term-missing
@@ -43,3 +49,7 @@ jobs:
         echo "✅ All tests passed successfully!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Python Version:** ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
+
+    - name: Build Docker image
+      run: |
+        docker build -t crypto-data-api:${{ github.sha }} .

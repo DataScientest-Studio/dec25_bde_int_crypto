@@ -5,14 +5,13 @@ Provides reusable test data fixtures for testing message processing logic.
 """
 
 import pytest
-from datetime import datetime, timezone
 from src.models.models import KlineData, KlineMessage, BinanceKline
 
 
 @pytest.fixture
 def raw_json_valid_message():
     """Raw JSON string of a valid WebSocket message."""
-    return '''{
+    return """{
         "e": "kline",
         "E": 1234567890000,
         "s": "BTCUSDT",
@@ -35,13 +34,13 @@ def raw_json_valid_message():
             "Q": "262500.00",
             "B": "123456"
         }
-    }'''
+    }"""
 
 
 @pytest.fixture
 def raw_json_closed_message():
     """Raw JSON string of a closed candle WebSocket message."""
-    return '''{
+    return """{
         "e": "kline",
         "E": 1234567890000,
         "s": "ETHUSDT",
@@ -64,7 +63,7 @@ def raw_json_closed_message():
             "Q": "152500.00",
             "B": "789012"
         }
-    }'''
+    }"""
 
 
 @pytest.fixture
@@ -97,8 +96,8 @@ def parsed_valid_message():
             "q": "525000.00",
             "V": "5.25",
             "Q": "262500.00",
-            "B": "123456"
-        }
+            "B": "123456",
+        },
     }
 
 
@@ -126,19 +125,15 @@ def parsed_closed_message():
             "q": "305000.00",
             "V": "50.0",
             "Q": "152500.00",
-            "B": "789012"
-        }
+            "B": "789012",
+        },
     }
 
 
 @pytest.fixture
 def parsed_invalid_event_type():
     """Message with invalid event type."""
-    return {
-        "e": "trade",
-        "E": 1234567890000,
-        "s": "BTCUSDT"
-    }
+    return {"e": "trade", "E": 1234567890000, "s": "BTCUSDT"}
 
 
 @pytest.fixture
@@ -158,7 +153,7 @@ def parsed_invalid_kline_structure():
         "e": "kline",
         "E": 1234567890000,
         "s": "BTCUSDT",
-        "k": "not_a_dict"  # Should be a dict
+        "k": "not_a_dict",  # Should be a dict
     }
 
 
@@ -172,7 +167,7 @@ def parsed_missing_kline_fields():
         "k": {
             "t": 1234567800000,
             # Missing required fields like 'o', 'h', 'l', 'c', 'v', 'x'
-        }
+        },
     }
 
 
@@ -190,14 +185,10 @@ def sample_kline_data():
         quote_volume=525000.00,
         trade_count=150,
         taker_buy_base_volume=5.25,
-        taker_buy_quote_volume=262500.00
+        taker_buy_quote_volume=262500.00,
     )
 
-    return KlineData.from_kline(
-        kline=binance_kline,
-        symbol="BTCUSDT",
-        interval="1m"
-    )
+    return KlineData.from_kline(kline=binance_kline, symbol="BTCUSDT", interval="1m")
 
 
 @pytest.fixture
@@ -215,5 +206,5 @@ def sample_kline_message():
         volume=10.5,
         quote_volume=525000.00,
         trade_count=150,
-        is_closed=False
+        is_closed=False,
     )

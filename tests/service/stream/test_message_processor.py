@@ -5,12 +5,15 @@ Tests the business logic for processing WebSocket messages.
 """
 
 import pytest
-from src.service.stream.message_processor import MessageProcessor, MessageValidationError
+from src.service.stream.message_processor import (
+    MessageProcessor,
+    MessageValidationError,
+)
 from src.models.models import KlineData, KlineMessage
 from src.mappers import KlineMapper
 
 # Import fixtures from separate file
-pytest_plugins = ['tests.service.stream.fixtures']
+pytest_plugins = ["tests.service.stream.fixtures"]
 
 
 class TestMessageProcessorParseWebSocketMessage:
@@ -22,9 +25,9 @@ class TestMessageProcessorParseWebSocketMessage:
         result = processor.parse_websocket_message(raw_json_valid_message)
 
         assert isinstance(result, dict)
-        assert result['e'] == 'kline'
-        assert result['s'] == 'BTCUSDT'
-        assert 'k' in result
+        assert result["e"] == "kline"
+        assert result["s"] == "BTCUSDT"
+        assert "k" in result
 
     def test_parse_closed_message_json(self, raw_json_closed_message):
         """Test parsing closed candle JSON string."""
@@ -32,9 +35,9 @@ class TestMessageProcessorParseWebSocketMessage:
         result = processor.parse_websocket_message(raw_json_closed_message)
 
         assert isinstance(result, dict)
-        assert result['e'] == 'kline'
-        assert result['s'] == 'ETHUSDT'
-        assert result['k']['x'] is True
+        assert result["e"] == "kline"
+        assert result["s"] == "ETHUSDT"
+        assert result["k"]["x"] is True
 
     def test_parse_invalid_json_raises_error(self, raw_json_invalid):
         """Test parsing invalid JSON raises MessageValidationError."""
@@ -140,38 +143,50 @@ class TestMessageProcessorFormatKlineLog:
 class TestMessageProcessorPrepareKafkaMessage:
     """Tests for prepare_kafka_message method."""
 
-    def test_prepare_kafka_message_returns_tuple(self, sample_kline_data, sample_kline_message):
+    def test_prepare_kafka_message_returns_tuple(
+        self, sample_kline_data, sample_kline_message
+    ):
         """Test preparing Kafka message returns correct tuple."""
         processor = MessageProcessor()
-        key, value = processor.prepare_kafka_message(sample_kline_data, sample_kline_message)
+        key, value = processor.prepare_kafka_message(
+            sample_kline_data, sample_kline_message
+        )
 
         assert isinstance(key, str)
         assert isinstance(value, dict)
 
-    def test_prepare_kafka_message_key_is_symbol(self, sample_kline_data, sample_kline_message):
+    def test_prepare_kafka_message_key_is_symbol(
+        self, sample_kline_data, sample_kline_message
+    ):
         """Test Kafka message key is the trading symbol."""
         processor = MessageProcessor()
-        key, value = processor.prepare_kafka_message(sample_kline_data, sample_kline_message)
+        key, value = processor.prepare_kafka_message(
+            sample_kline_data, sample_kline_message
+        )
 
         assert key == "BTCUSDT"
         assert key == sample_kline_data.symbol
 
-    def test_prepare_kafka_message_value_structure(self, sample_kline_data, sample_kline_message):
+    def test_prepare_kafka_message_value_structure(
+        self, sample_kline_data, sample_kline_message
+    ):
         """Test Kafka message value contains all fields."""
         processor = MessageProcessor()
-        key, value = processor.prepare_kafka_message(sample_kline_data, sample_kline_message)
+        key, value = processor.prepare_kafka_message(
+            sample_kline_data, sample_kline_message
+        )
 
         # Check value has required fields
-        assert 'event_time' in value
-        assert 'symbol' in value
-        assert 'interval' in value
-        assert 'timestamp' in value
-        assert 'open' in value
-        assert 'high' in value
-        assert 'low' in value
-        assert 'close' in value
-        assert 'volume' in value
-        assert 'is_closed' in value
+        assert "event_time" in value
+        assert "symbol" in value
+        assert "interval" in value
+        assert "timestamp" in value
+        assert "open" in value
+        assert "high" in value
+        assert "low" in value
+        assert "close" in value
+        assert "volume" in value
+        assert "is_closed" in value
 
 
 class TestMessageProcessorShouldPublishToKafka:
@@ -292,7 +307,7 @@ class TestMessageProcessorExtractSymbolInterval:
         processor = MessageProcessor()
         message = {
             "e": "kline",
-            "k": {"i": "1m"}
+            "k": {"i": "1m"},
             # Missing 's' field
         }
 
@@ -307,7 +322,7 @@ class TestMessageProcessorExtractSymbolInterval:
         message = {
             "e": "kline",
             "s": "BTCUSDT",
-            "k": {}
+            "k": {},
             # Missing 'i' field in 'k'
         }
 
@@ -321,7 +336,7 @@ class TestMessageProcessorExtractSymbolInterval:
         processor = MessageProcessor()
         message = {
             "e": "kline",
-            "s": "BTCUSDT"
+            "s": "BTCUSDT",
             # Missing 'k' field
         }
 
