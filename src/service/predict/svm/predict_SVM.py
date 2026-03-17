@@ -37,8 +37,14 @@ df["spread"] = df["high"] - df["low"]
 df = df.dropna()
 
 features = [
-    "log_return","volatility","ma_10","ma_30",
-    "momentum","buy_ratio","spread","trade_count"
+    "log_return",
+    "volatility",
+    "ma_10",
+    "ma_30",
+    "momentum",
+    "buy_ratio",
+    "spread",
+    "trade_count",
 ]
 
 X_new = df[features]
@@ -71,22 +77,19 @@ df["probability_up"] = probabilities
 # 7. Affichage utilisateur clair
 # ===============================
 
-df["signal"] = df["prediction"].map({
-    0: "DOWN ⬇",
-    1: "UP ⬆"
-})
+df["signal"] = df["prediction"].map({0: "DOWN ⬇", 1: "UP ⬆"})
 
 df["confidence_%"] = (df["probability_up"] * 100).round(2)
 
-print("\n" + "="*50)
+print("\n" + "=" * 50)
 print("        📊 BITCOIN SIGNAL PREDICTION")
-print("="*50)
+print("=" * 50)
 
 last_row = df.iloc[-1]
 
 print(f"Signal : {last_row['signal']}")
 print(f"Probabilité de hausse : {last_row['confidence_%']} %")
-print("="*50)
+print("=" * 50)
 
 print("\n📌 Dernières prédictions :\n")
 print(df[["signal", "confidence_%"]].tail(10))

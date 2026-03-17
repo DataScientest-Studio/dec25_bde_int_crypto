@@ -44,6 +44,8 @@ app.add_middleware(
 app.include_router(grafana.router)
 # app.include_router(prediction.router)
 app.include_router(predict_logistic_regression.router)
+
+
 @app.get("/")
 def root():
     """Health check endpoint."""
