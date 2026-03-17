@@ -1,4 +1,4 @@
-name: redpanda-quickstart-one-broker
+name: dec25_bde_int_crypto
 
 networks:
   redpanda_network:
@@ -8,6 +8,7 @@ volumes:
   redpanda-0:
   mongodb_data:
   grafana_data:
+  collector_data:
 
 services:
   redpanda-0:
@@ -137,3 +138,18 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
+  
+  binance-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile.collector
+    container_name: binance-collector
+    restart: "no"
+    depends_on:
+      - mongodb
+    networks:
+      - redpanda_network
+    env_file:
+      - .env
+    volumes:
+      - collector_data:/app/data  

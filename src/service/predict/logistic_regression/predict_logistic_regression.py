@@ -89,6 +89,6 @@ print(f"Probabilité de hausse : {last_row['confidence_%']} %")
 print("="*50)
 
 print("\n📌 Dernières prédictions :\n")
-print(df[["signal", "confidence_%"]].tail(10))
+print(df[["signal", "confidence_%"]].tail(20))
 
 print("\n✅ Prédictions terminées.")
