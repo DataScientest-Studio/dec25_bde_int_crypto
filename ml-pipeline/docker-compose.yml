@@ -70,13 +70,16 @@ services:
       dockerfile: ml-pipeline/dockerfiles/Dockerfile.trainer
     container_name: model-trainer
     restart: "no"
+    depends_on:
+      mongodb-ml:
+        condition: service_healthy
     networks:
       - ml_net
+    env_file:
+      - .env
     environment:
-      CSV_PATH: /app/data/raw_data/BTCUSDT_5m.csv
       MODEL_DIR: /app/models
     volumes:
-      - collector_data:/app/data
       - model_artifacts:/app/models
 
   prediction-api:

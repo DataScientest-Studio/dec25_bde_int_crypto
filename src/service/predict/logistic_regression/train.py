@@ -1,7 +1,10 @@
 import os
+import asyncio
 import joblib
 import pandas as pd
 import numpy as np
+from bson import Decimal128
+from motor.motor_asyncio import AsyncIOMotorClient
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
@@ -10,26 +13,71 @@ from pathlib import Path
 # ===============================
 # Config via env vars
 # ===============================
-CSV_PATH = os.getenv("CSV_PATH", "/app/data/raw_data/BTCUSDT_5m.csv")
+MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://admin:password@mongodb-ml:27017/")
+MONGODB_DB = os.getenv("MONGODB_DATABASE", "crypto_data")
+COLLECTION = os.getenv("MONGODB_COLLECTION_HISTORICAL", "klines_historical")
 MODEL_DIR = os.getenv("MODEL_DIR", "/app/models")
+SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
+INTERVAL = os.getenv("BINANCE_INTERVAL", "5m")
 
-print(f"[trainer] CSV     : {CSV_PATH}")
-print(f"[trainer] Models  : {MODEL_DIR}")
+print(f"[trainer] MongoDB  : {MONGODB_URI}")
+print(f"[trainer] Database : {MONGODB_DB} / {COLLECTION}")
+print(f"[trainer] Symbol   : {SYMBOL} {INTERVAL}")
+print(f"[trainer] Models   : {MODEL_DIR}")
+
 
 # ===============================
-# 1. Chargement CSV
+# 1. Fetch data from MongoDB
 # ===============================
-df = pd.read_csv(CSV_PATH)
-print(f"[trainer] Lignes chargées : {len(df)}")
+async def fetch_klines() -> pd.DataFrame:
+    client = AsyncIOMotorClient(MONGODB_URI)
+    try:
+        await client.admin.command("ping")
+        print("[trainer] MongoDB connecté ✅")
+
+        collection = client[MONGODB_DB][COLLECTION]
+        cursor = collection.find(
+            {"symbol": SYMBOL, "interval": INTERVAL},
+            {
+                "_id": 0,
+                "open_time_ms": 1,
+                "close_time_ms": 1,
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": 1,
+                "volume": 1,
+                "trade_count": 1,
+                "taker_buy_base_volume": 1,
+            },
+        ).sort("open_time_ms", 1)
+
+        docs = await cursor.to_list(length=None)
+        print(f"[trainer] Documents récupérés : {len(docs)}")
+        return pd.DataFrame(docs)
+    finally:
+        client.close()
+
+
+df = asyncio.run(fetch_klines())
+
+if df.empty:
+    raise ValueError(f"Aucune donnée trouvée pour {SYMBOL} {INTERVAL} dans MongoDB !")
 
 # ===============================
-# 2. Preprocessing
+# 2. Conversion Decimal128 → float
 # ===============================
+decimal_cols = ["open", "high", "low", "close", "volume", "taker_buy_base_volume"]
+for col in decimal_cols:
+    df[col] = df[col].apply(
+        lambda x: float(x.to_decimal()) if isinstance(x, Decimal128) else float(x)
+    )
+
+df["trade_count"] = pd.to_numeric(df["trade_count"], errors="coerce")
 df["open_time_ms"] = pd.to_datetime(df["open_time_ms"], unit="ms")
 df["close_time_ms"] = pd.to_datetime(df["close_time_ms"], unit="ms")
 
-if "ignore" in df.columns:
-    df = df.drop(columns=["ignore"])
+print(f"[trainer] Types après conversion : {df.dtypes.to_dict()}")
 
 # ===============================
 # 3. Target
@@ -49,6 +97,8 @@ df["buy_ratio"] = df["taker_buy_base_volume"] / df["volume"]
 df["spread"] = df["high"] - df["low"]
 df = df.dropna()
 df = df.sort_values(by="open_time_ms")
+
+print(f"[trainer] Lignes après feature engineering : {len(df)}")
 
 # ===============================
 # 5. Split train/test
