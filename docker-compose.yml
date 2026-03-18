@@ -1,5 +1,6 @@
 name: dec25_bde_int_crypto
 
+# Reuse the same log rotation policy across services.
 x-logging: &default-logging
   driver: json-file
   options:
@@ -8,17 +9,24 @@ x-logging: &default-logging
     compress: "true"
 
 networks:
+  # Keep all containers on one internal app network.
   app_network:
     driver: bridge
 
 volumes:
+  # Persist MongoDB data between container restarts.
   mongodb_data:
+  # Persist Grafana dashboards, plugins, and local state.
   grafana_data:
+  # Reserved for collector data if a named volume is needed later.
   collector_data:
+  # Share trained model artifacts between trainer and prediction API.
   model_artifacts:
+  # Persist Redpanda broker data.
   redpanda-0:
 
 services:
+  # Redpanda provides the local streaming backbone.
   redpanda-0:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.6
     container_name: redpanda-0
@@ -56,6 +64,7 @@ services:
       - "19644:9644"    # Admin API
     logging: *default-logging
 
+  # Redpanda Console gives a web UI for topics and messages.
   console:
     image: docker.redpanda.com/redpandadata/console:v3.5.0
     container_name: redpanda-console
@@ -82,6 +91,7 @@ services:
       - "8080:8080"
     logging: *default-logging
 
+  # MongoDB stores both historical and streaming market data.
   mongodb:
     image: mongo:8.0
     container_name: mongodb
@@ -103,6 +113,7 @@ services:
       - mongodb_data:/data/db
     logging: *default-logging
 
+  # Mongo Express is a lightweight browser UI for MongoDB.
   mongo-express:
     image: mongo-express:1.0.2
     container_name: mongo-express
@@ -125,6 +136,7 @@ services:
 ### OUR SERVICES ###
 ####################
 
+  # Main FastAPI app for root, prediction, and Grafana routes.
   main:
     build:
       context: .
@@ -141,9 +153,11 @@ services:
     env_file:
       - .env
     environment:
+      # Override the Mongo host so containers use the internal service name.
       MONGODB_URI: mongodb://admin:password@mongodb:27017/?authSource=admin
     logging: *default-logging
 
+  # Grafana visualizes data through the FastAPI Grafana routes.
   grafana:
     image: grafana/grafana:11.4.0
     container_name: grafana
@@ -168,6 +182,7 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning
     logging: *default-logging
 
+  # Collector fetches historical Binance candles and updates files plus MongoDB.
   binance-collector:
     build:
       context: .
@@ -182,9 +197,11 @@ services:
     env_file:
       - .env
     volumes:
+      # Bind mount local data so raw and processed files stay on the host.
       - ./data:/app/data
     logging: *default-logging
 
+  # Trainer reads historical Mongo data and writes model artifacts once per run.
   model-trainer:
     build:
       context: .
@@ -199,11 +216,13 @@ services:
     env_file:
       - .env
     environment:
+      # Save artifacts into the shared models volume.
       MODEL_DIR: /app/models
     volumes:
       - model_artifacts:/app/models
     logging: *default-logging
 
+  # Prediction API serves inference using the shared trained artifacts.
   prediction-api:
     build:
       context: .
@@ -218,6 +237,7 @@ services:
     env_file:
       - .env
     environment:
+      # Point inference to the shared model files written by the trainer.
       MODEL_PATH: /app/models/logistic_regression_model.pkl
       SCALER_PATH: /app/models/logistic_regression_scaler.pkl
     ports:
