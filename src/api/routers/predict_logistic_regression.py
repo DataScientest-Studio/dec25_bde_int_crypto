@@ -1,15 +1,22 @@
-import os
-import joblib
-import pandas as pd
-import numpy as np
-import logging
-from bson import Decimal128
-from fastapi import APIRouter, HTTPException, Query
-from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel
+"""Thin FastAPI router for logistic regression predictions.
+
+The router only handles request/response concerns. All model loading,
+MongoDB access, and feature engineering live in the service layer.
+"""
+
 from typing import List
 
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
+
+from src.config.mongo_settings import get_settings as get_mongo_settings
+from src.service.predict.logistic_regression.predictor import (
+    FEATURES,
+    INTERVAL,
+    MODEL_PATH,
+    SCALER_PATH,
+    predictor,
+)
 
 router = APIRouter(
     prefix="/predict/logistic",
@@ -17,32 +24,9 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# ── Config ────────────────────────────────────────────────────────────────────
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://admin:password@mongodb-ml:27017/")
-MONGODB_DB = os.getenv("MONGODB_DATABASE", "crypto_data")
-COLLECTION = os.getenv("MONGODB_COLLECTION_HISTORICAL", "klines_historical")
-INTERVAL = os.getenv("BINANCE_INTERVAL", "5m")
 
-# ── Load model & scaler ───────────────────────────────────────────────────────
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_PATH = os.getenv(
-    "MODEL_PATH", os.path.join(BASE_DIR, "logistic_regression_model.pkl")
-)
-SCALER_PATH = os.getenv(
-    "SCALER_PATH", os.path.join(BASE_DIR, "logistic_regression_scaler.pkl")
-)
-
-try:
-    model = joblib.load(MODEL_PATH)
-    scaler = joblib.load(SCALER_PATH)
-    logger.info("Model & scaler loaded.")
-except Exception as e:
-    model = None
-    scaler = None
-    logger.error(f"Failed to load model/scaler: {e}")
-
-
-# ── Schemas ───────────────────────────────────────────────────────────────────
+# These response models are API-only. They intentionally stay outside the
+# service layer so HTTP formatting concerns do not leak into business logic.
 class PredictionRow(BaseModel):
     timestamp_ms: int
     timestamp_iso: str
@@ -61,133 +45,30 @@ class LogisticPredictionResponse(BaseModel):
     predictions: List[PredictionRow]
 
 
-# ── Constants ─────────────────────────────────────────────────────────────────
-FEATURES = [
-    "log_return",
-    "volatility",
-    "ma_10",
-    "ma_30",
-    "momentum",
-    "buy_ratio",
-    "spread",
-    "trade_count",
-]
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def decimal_to_float(x):
-    if isinstance(x, Decimal128):
-        return float(x.to_decimal())
-    return float(x)
-
-
-async def fetch_klines(symbol: str, limit: int) -> pd.DataFrame:
-    fetch_limit = limit + 50  # extra pour rolling windows
-
-    client = AsyncIOMotorClient(MONGODB_URI)
-    try:
-        collection = client[MONGODB_DB][COLLECTION]
-
-        # Trouve la dernière bougie disponible
-        last_doc = await collection.find_one(
-            {"symbol": symbol, "interval": INTERVAL}, sort=[("open_time_ms", -1)]
-        )
-
-        if not last_doc:
-            return pd.DataFrame()
-
-        last_ts = last_doc["open_time_ms"]
-        print(f"[api] Dernière bougie en base : {last_ts}")
-
-        # Fetch les N dernières bougies consécutives depuis cette date
-        cursor = (
-            collection.find(
-                {
-                    "symbol": symbol,
-                    "interval": INTERVAL,
-                    "open_time_ms": {"$lte": last_ts},
-                },
-                {
-                    "_id": 0,
-                    "open_time_ms": 1,
-                    "open": 1,
-                    "high": 1,
-                    "low": 1,
-                    "close": 1,
-                    "volume": 1,
-                    "trade_count": 1,
-                    "taker_buy_base_volume": 1,
-                },
-            )
-            .sort("open_time_ms", -1)
-            .limit(fetch_limit)
-        )
-
-        docs = await cursor.to_list(length=None)
-        return pd.DataFrame(docs)
-    finally:
-        client.close()
-
-
-def run_prediction(df: pd.DataFrame) -> pd.DataFrame:
-    decimal_cols = ["open", "high", "low", "close", "volume", "taker_buy_base_volume"]
-    for col in decimal_cols:
-        df[col] = df[col].apply(decimal_to_float)
-
-    df["trade_count"] = pd.to_numeric(df["trade_count"], errors="coerce")
-    df = df.sort_values("open_time_ms").reset_index(drop=True)
-
-    df["return"] = df["close"].pct_change()
-    df["log_return"] = np.log(df["close"] / df["close"].shift(1))
-    df["volatility"] = df["return"].rolling(12).std()
-    df["ma_10"] = df["close"].rolling(10).mean()
-    df["ma_30"] = df["close"].rolling(30).mean()
-    df["momentum"] = df["close"] - df["close"].shift(10)
-    df["buy_ratio"] = df["taker_buy_base_volume"] / df["volume"]
-    df["spread"] = df["high"] - df["low"]
-    df = df.dropna()
-
-    X_scaled = scaler.transform(df[FEATURES])
-    df["prediction"] = model.predict(X_scaled)
-    df["probability_up"] = model.predict_proba(X_scaled)[:, 1]
-    df["signal"] = df["prediction"].map({0: "DOWN ⬇", 1: "UP ⬆"})
-    df["confidence_%"] = (df["probability_up"] * 100).round(2)
-
-    # timestamp en ms et ISO
-    df["timestamp_ms"] = df["open_time_ms"].astype(int)
-    df["timestamp_iso"] = pd.to_datetime(df["open_time_ms"], unit="ms").dt.strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-
-    return df
-
-
-# ── Endpoints ─────────────────────────────────────────────────────────────────
 @router.get("/{symbol}", response_model=LogisticPredictionResponse)
 async def predict(
     symbol: str,
-    limit: int = Query(default=20, ge=5, le=500, description="Nombre de bougies"),
+    limit: int = Query(default=20, ge=5, le=500, description="Number of candles"),
 ):
-    """
-    Fetch les dernières bougies depuis MongoDB et retourne les prédictions avec timestamps.
-    """
-    if model is None or scaler is None:
+    """HTTP wrapper around the logistic regression prediction service."""
+    if not predictor.is_ready:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    df = await fetch_klines(symbol.upper(), limit)
-
+    # The service returns a pandas DataFrame; the router reshapes it into a
+    # stable API response contract.
+    df = await predictor.fetch_klines(symbol.upper(), limit)
     if df.empty:
         raise HTTPException(
             status_code=404, detail=f"No data found for {symbol} {INTERVAL} in MongoDB."
         )
 
     try:
-        df = run_prediction(df)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Prediction error: {e}")
+        predicted_df = predictor.run_prediction(df)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Prediction error: {exc}") from exc
 
-    last = df.iloc[-1]
-    last_n = df.tail(limit)
+    last = predicted_df.iloc[-1]
+    last_n = predicted_df.tail(limit)
 
     return LogisticPredictionResponse(
         symbol=symbol.upper(),
@@ -211,12 +92,16 @@ async def predict(
 
 @router.get("/status/check")
 async def model_status():
+    """Expose lightweight runtime status for debugging the prediction service."""
+    settings = get_mongo_settings()
     return {
-        "model_loaded": model is not None,
-        "scaler_loaded": scaler is not None,
+        "model_loaded": predictor.model is not None,
+        "scaler_loaded": predictor.scaler is not None,
         "features": FEATURES,
-        "n_features_expected": model.n_features_in_ if model else None,
-        "mongodb": MONGODB_URI,
-        "collection": COLLECTION,
+        "n_features_expected": predictor.expected_feature_count,
+        "mongodb_database": settings.mongodb_database,
+        "collection": settings.mongodb_collection_historical,
         "interval": INTERVAL,
+        "model_path": str(MODEL_PATH),
+        "scaler_path": str(SCALER_PATH),
     }

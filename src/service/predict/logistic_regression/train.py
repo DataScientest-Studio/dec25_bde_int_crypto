@@ -1,43 +1,80 @@
-import os
+"""Training entrypoint for the logistic regression model.
+
+The training script reads historical candles from MongoDB, rebuilds the
+feature set, trains the model, and persists the model/scaler artifacts for the
+prediction API.
+"""
+
 import asyncio
-import joblib
-import pandas as pd
-import numpy as np
-from bson import Decimal128
-from motor.motor_asyncio import AsyncIOMotorClient
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, classification_report
+import os
 from pathlib import Path
 
-# ===============================
-# Config via env vars
-# ===============================
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://admin:password@mongodb-ml:27017/")
-MONGODB_DB = os.getenv("MONGODB_DATABASE", "crypto_data")
-COLLECTION = os.getenv("MONGODB_COLLECTION_HISTORICAL", "klines_historical")
-MODEL_DIR = os.getenv("MODEL_DIR", "/app/models")
-SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
-INTERVAL = os.getenv("BINANCE_INTERVAL", "5m")
+import joblib
+import numpy as np
+import pandas as pd
+from bson import Decimal128
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.preprocessing import StandardScaler
 
-print(f"[trainer] MongoDB  : {MONGODB_URI}")
-print(f"[trainer] Database : {MONGODB_DB} / {COLLECTION}")
-print(f"[trainer] Symbol   : {SYMBOL} {INTERVAL}")
-print(f"[trainer] Models   : {MODEL_DIR}")
+from src.config.mongo_settings import get_settings as get_mongo_settings
+from src.database.mongo_client import MongoClient
+
+# Keep this list aligned with `predictor.py`.
+FEATURES = [
+    "log_return",
+    "volatility",
+    "ma_10",
+    "ma_30",
+    "momentum",
+    "buy_ratio",
+    "spread",
+    "trade_count",
+]
+
+DECIMAL_COLUMNS = [
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "taker_buy_base_volume",
+]
+
+MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models"))
+SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT").strip().upper()
+INTERVAL = os.getenv("BINANCE_INTERVAL", "5m").strip()
 
 
-# ===============================
-# 1. Fetch data from MongoDB
-# ===============================
-async def fetch_klines() -> pd.DataFrame:
-    client = AsyncIOMotorClient(MONGODB_URI)
+def decimal_to_float(value):
+    """Normalize Mongo Decimal128 values into floats for pandas/scikit-learn."""
+    if isinstance(value, Decimal128):
+        return float(value.to_decimal())
+    return float(value)
+
+
+async def fetch_klines(symbol: str, interval: str) -> pd.DataFrame:
+    """Read historical candles from MongoDB using the shared app client/settings."""
+    settings = get_mongo_settings()
+    client = MongoClient(
+        uri=settings.mongodb_uri,
+        database=settings.mongodb_database,
+        collection=settings.mongodb_collection_historical,
+    )
+
+    print(f"[trainer] Database : {settings.mongodb_database}")
+    print(f"[trainer] Collection: {settings.mongodb_collection_historical}")
+    print(f"[trainer] Symbol    : {symbol} {interval}")
+    print(f"[trainer] Models    : {MODEL_DIR}")
+
     try:
-        await client.admin.command("ping")
-        print("[trainer] MongoDB connecté ✅")
+        await client.initialize()
+        print("[trainer] MongoDB connected")
 
-        collection = client[MONGODB_DB][COLLECTION]
+        collection = client.get_collection()
+        # Only fetch the columns needed by the feature engineering step.
         cursor = collection.find(
-            {"symbol": SYMBOL, "interval": INTERVAL},
+            {"symbol": symbol, "interval": interval},
             {
                 "_id": 0,
                 "open_time_ms": 1,
@@ -52,102 +89,107 @@ async def fetch_klines() -> pd.DataFrame:
             },
         ).sort("open_time_ms", 1)
 
-        docs = await cursor.to_list(length=None)
-        print(f"[trainer] Documents récupérés : {len(docs)}")
-        return pd.DataFrame(docs)
+        documents = await cursor.to_list(length=None)
+        print(f"[trainer] Documents : {len(documents)}")
+        return pd.DataFrame(documents)
     finally:
-        client.close()
+        await client.close()
 
 
-df = asyncio.run(fetch_klines())
+def prepare_dataset(df: pd.DataFrame) -> pd.DataFrame:
+    """Rebuild the training frame from MongoDB documents."""
+    if df.empty:
+        raise ValueError(f"No data found for {SYMBOL} {INTERVAL} in MongoDB.")
 
-if df.empty:
-    raise ValueError(f"Aucune donnée trouvée pour {SYMBOL} {INTERVAL} dans MongoDB !")
+    for column in DECIMAL_COLUMNS:
+        df[column] = df[column].apply(decimal_to_float)
 
-# ===============================
-# 2. Conversion Decimal128 → float
-# ===============================
-decimal_cols = ["open", "high", "low", "close", "volume", "taker_buy_base_volume"]
-for col in decimal_cols:
-    df[col] = df[col].apply(
-        lambda x: float(x.to_decimal()) if isinstance(x, Decimal128) else float(x)
-    )
+    df["trade_count"] = pd.to_numeric(df["trade_count"], errors="coerce")
+    df["open_time_ms"] = pd.to_numeric(df["open_time_ms"], errors="coerce")
+    df["close_time_ms"] = pd.to_numeric(df["close_time_ms"], errors="coerce")
+    df = df.sort_values("open_time_ms").reset_index(drop=True)
 
-df["trade_count"] = pd.to_numeric(df["trade_count"], errors="coerce")
-df["open_time_ms"] = pd.to_datetime(df["open_time_ms"], unit="ms")
-df["close_time_ms"] = pd.to_datetime(df["close_time_ms"], unit="ms")
+    next_close = df["close"].shift(-1)
+    safe_volume = df["volume"].replace(0, np.nan)
 
-print(f"[trainer] Types après conversion : {df.dtypes.to_dict()}")
+    # Keep the original label definition so this refactor does not change model intent.
+    df["target"] = (next_close > df["open"]).astype(int)
+    # Feature engineering must stay in sync with the predictor service.
+    df["return"] = df["close"].pct_change()
+    df["log_return"] = np.log(df["close"] / df["close"].shift(1))
+    df["volatility"] = df["return"].rolling(12).std()
+    df["ma_10"] = df["close"].rolling(10).mean()
+    df["ma_30"] = df["close"].rolling(30).mean()
+    df["momentum"] = df["close"] - df["close"].shift(10)
+    df["buy_ratio"] = df["taker_buy_base_volume"] / safe_volume
+    df["spread"] = df["high"] - df["low"]
 
-# ===============================
-# 3. Target
-# ===============================
-df["target"] = (df["close"].shift(-1) > df["open"]).astype(int)
+    df = df.assign(next_close=next_close)
+    df = df.dropna(subset=["next_close", *FEATURES]).copy()
 
-# ===============================
-# 4. Feature Engineering
-# ===============================
-df["return"] = df["close"].pct_change()
-df["log_return"] = np.log(df["close"] / df["close"].shift(1))
-df["volatility"] = df["return"].rolling(12).std()
-df["ma_10"] = df["close"].rolling(10).mean()
-df["ma_30"] = df["close"].rolling(30).mean()
-df["momentum"] = df["close"] - df["close"].shift(10)
-df["buy_ratio"] = df["taker_buy_base_volume"] / df["volume"]
-df["spread"] = df["high"] - df["low"]
-df = df.dropna()
-df = df.sort_values(by="open_time_ms")
+    if len(df) < 10:
+        raise ValueError(
+            "Not enough historical rows after feature engineering to train the model."
+        )
 
-print(f"[trainer] Lignes après feature engineering : {len(df)}")
+    if df["target"].nunique() < 2:
+        raise ValueError("Training target must contain at least two classes.")
 
-# ===============================
-# 5. Split train/test
-# ===============================
-train_size = int(len(df) * 0.8)
-train = df[:train_size]
-test = df[train_size:]
+    print(f"[trainer] Rows after feature engineering: {len(df)}")
+    return df
 
-features = [
-    "log_return",
-    "volatility",
-    "ma_10",
-    "ma_30",
-    "momentum",
-    "buy_ratio",
-    "spread",
-    "trade_count",
-]
 
-scaler = StandardScaler()
-X_train = scaler.fit_transform(train[features])
-X_test = scaler.transform(test[features])
-y_train = train["target"]
-y_test = test["target"]
+def train_model(df: pd.DataFrame) -> tuple[LogisticRegression, StandardScaler, float]:
+    """Split, scale, and train the logistic regression model."""
+    train_size = int(len(df) * 0.8)
+    if train_size <= 0 or train_size >= len(df):
+        raise ValueError("Not enough rows to create both train and test splits.")
 
-# ===============================
-# 6. Entraînement
-# ===============================
-print("[trainer] Entraînement...")
-model = LogisticRegression(max_iter=1000)
-model.fit(X_train, y_train)
+    # Use a chronological split so future rows never leak into training.
+    train = df.iloc[:train_size]
+    test = df.iloc[train_size:]
 
-predictions = model.predict(X_test)
-accuracy = accuracy_score(y_test, predictions)
+    scaler = StandardScaler()
+    x_train = scaler.fit_transform(train[FEATURES])
+    x_test = scaler.transform(test[FEATURES])
+    y_train = train["target"]
+    y_test = test["target"]
 
-print(f"[trainer] Accuracy : {accuracy:.4f}")
-print(classification_report(y_test, predictions))
+    print("[trainer] Training logistic regression...")
+    model = LogisticRegression(max_iter=1000)
+    model.fit(x_train, y_train)
 
-# ===============================
-# 7. Sauvegarde .pkl
-# ===============================
-Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
+    predictions = model.predict(x_test)
+    accuracy = accuracy_score(y_test, predictions)
 
-model_path = os.path.join(MODEL_DIR, "logistic_regression_model.pkl")
-scaler_path = os.path.join(MODEL_DIR, "logistic_regression_scaler.pkl")
+    print(f"[trainer] Accuracy : {accuracy:.4f}")
+    print(classification_report(y_test, predictions, zero_division=0))
 
-joblib.dump(model, model_path)
-joblib.dump(scaler, scaler_path)
+    return model, scaler, accuracy
 
-print(f"[trainer] Modèle sauvegardé  : {model_path}")
-print(f"[trainer] Scaler sauvegardé  : {scaler_path}")
-print("[trainer] done")
+
+def save_artifacts(model: LogisticRegression, scaler: StandardScaler) -> None:
+    """Persist the model artifacts for the prediction API container."""
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    model_path = MODEL_DIR / "logistic_regression_model.pkl"
+    scaler_path = MODEL_DIR / "logistic_regression_scaler.pkl"
+
+    joblib.dump(model, model_path)
+    joblib.dump(scaler, scaler_path)
+
+    print(f"[trainer] Model saved  : {model_path}")
+    print(f"[trainer] Scaler saved : {scaler_path}")
+
+
+def main() -> None:
+    """Run the training pipeline end-to-end."""
+    df = asyncio.run(fetch_klines(SYMBOL, INTERVAL))
+    prepared_df = prepare_dataset(df)
+    model, scaler, _ = train_model(prepared_df)
+    save_artifacts(model, scaler)
+    print("[trainer] done")
+
+
+if __name__ == "__main__":
+    main()

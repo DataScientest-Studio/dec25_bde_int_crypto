@@ -1,19 +1,28 @@
 name: dec25_bde_int_crypto
 
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+    compress: "true"
+
 networks:
-  redpanda_network:
+  app_network:
     driver: bridge
 
 volumes:
-  redpanda-0:
   mongodb_data:
   grafana_data:
   collector_data:
+  model_artifacts:
+  redpanda-0:
 
 services:
   redpanda-0:
     image: docker.redpanda.com/redpandadata/redpanda:v25.3.6
     container_name: redpanda-0
+    restart: unless-stopped
     command:
       - redpanda
       - start
@@ -35,24 +44,26 @@ services:
       - dev-container
       - --smp
       - "1"
-      - --default-log-level=info
+      - --default-log-level=warn
     volumes:
       - redpanda-0:/var/lib/redpanda/data
     networks:
-      - redpanda_network
+      - app_network
     ports:
-      - 18081:18081   # Schema Registry
-      - 18082:18082   # HTTP Proxy
-      - 19092:19092   # Kafka API
-      - 19644:9644    # Admin API
+      - "18081:18081"   # Schema Registry
+      - "18082:18082"   # HTTP Proxy
+      - "19092:19092"   # Kafka API
+      - "19644:9644"    # Admin API
+    logging: *default-logging
 
   console:
     image: docker.redpanda.com/redpandadata/console:v3.5.0
     container_name: redpanda-console
+    restart: unless-stopped
     depends_on:
       - redpanda-0
     networks:
-      - redpanda_network
+      - app_network
     entrypoint: /bin/sh
     command: -c 'echo "$$CONSOLE_CONFIG_FILE" > /tmp/config.yml; /app/console'
     environment:
@@ -68,88 +79,149 @@ services:
             enabled: true
             urls: ["http://redpanda-0:9644"]
     ports:
-      - 8080:8080
+      - "8080:8080"
+    logging: *default-logging
 
   mongodb:
     image: mongo:8.0
     container_name: mongodb
     restart: unless-stopped
     networks:
-      - redpanda_network
+      - app_network
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
       MONGO_INITDB_ROOT_PASSWORD: password
     ports:
-      - 27017:27017
+      - "27017:27017"
+    healthcheck:
+      test: [ "CMD", "mongosh", "--host", "localhost", "--eval", "db.adminCommand('ping')", "-u", "admin", "-p", "password", "--authenticationDatabase", "admin" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - mongodb_data:/data/db
+    logging: *default-logging
 
   mongo-express:
     image: mongo-express:1.0.2
     container_name: mongo-express
     restart: unless-stopped
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
-      - redpanda_network
+      - app_network
     environment:
-      ME_CONFIG_MONGODB_SERVER: mongodb
-      ME_CONFIG_MONGODB_PORT: 27017
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongodb:27017/?authSource=admin
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
       ME_CONFIG_BASICAUTH_USERNAME: admin
       ME_CONFIG_BASICAUTH_PASSWORD: password
     ports:
-      - 8082:8081
+      - "8082:8081"
+    logging: *default-logging
 
-  grafana-api:
+####################
+### OUR SERVICES ###
+####################
+
+  main:
     build:
       context: .
-      dockerfile: Dockerfile.grafana-api
-    container_name: grafana-api
+      dockerfile: dockerfiles/Dockerfile.main
+    container_name: main
     restart: unless-stopped
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
-      - redpanda_network
+      - app_network
     ports:
-      - 8000:8000
+      - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - MONGODB_URI=mongodb://admin:password@mongodb:27017/
-      - MONGODB_DATABASE=crypto_data
-      - MONGODB_COLLECTION=klines_streaming
+      MONGODB_URI: mongodb://admin:password@mongodb:27017/?authSource=admin
+    logging: *default-logging
 
   grafana:
     image: grafana/grafana:11.4.0
     container_name: grafana
     restart: unless-stopped
     depends_on:
-      - mongodb
-      - grafana-api
+      mongodb:
+        condition: service_healthy
+      main:
+        condition: service_started
     networks:
-      - redpanda_network
+      - app_network
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_INSTALL_PLUGINS=yesoreyeram-infinity-datasource
-      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_LOG_LEVEL: warn
     ports:
-      - 3000:3000
+      - "3000:3000"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
-  
+    logging: *default-logging
+
   binance-collector:
     build:
       context: .
-      dockerfile: Dockerfile.collector
+      dockerfile: dockerfiles/Dockerfile.collector
     container_name: binance-collector
-    restart: "no"
+    restart: on-failure
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
-      - redpanda_network
+      - app_network
     env_file:
       - .env
     volumes:
-      - collector_data:/app/data  
+      - ./data:/app/data
+    logging: *default-logging
+
+  model-trainer:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.trainer
+    container_name: model-trainer
+    restart: "no"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app_network
+    env_file:
+      - .env
+    environment:
+      MODEL_DIR: /app/models
+    volumes:
+      - model_artifacts:/app/models
+    logging: *default-logging
+
+  prediction-api:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.prediction-api
+    container_name: prediction-api
+    restart: unless-stopped
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - app_network
+    env_file:
+      - .env
+    environment:
+      MODEL_PATH: /app/models/logistic_regression_model.pkl
+      SCALER_PATH: /app/models/logistic_regression_scaler.pkl
+    ports:
+      - "8001:8000"
+    volumes:
+      - model_artifacts:/app/models
+    logging: *default-logging

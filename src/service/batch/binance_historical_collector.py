@@ -412,10 +412,15 @@ class KlinePipeline:
         self.paths = build_paths(symbol, interval)
 
     async def run(self) -> None:
+        # The pipeline is intentionally staged:
+        # 1. fetch/update raw files
+        # 2. derive processed rows
+        # 3. upsert the historical collection in MongoDB
         ensure_dirs(self.paths)
         merged_raw = await self._sync_raw()
         new_models = self._sync_processed(merged_raw)
-        await self._sync_mongo(new_models)
+        models_for_mongo = await self._prepare_models_for_mongo(new_models)
+        await self._sync_mongo(models_for_mongo)
         print_step("[pipeline] done")
 
     # ------------------------------------------------------------------
@@ -498,6 +503,46 @@ class KlinePipeline:
     # ------------------------------------------------------------------
     # Phase 3 — mongo
     # ------------------------------------------------------------------
+
+    async def _prepare_models_for_mongo(
+        self, new_models: List[HistoricalKline]
+    ) -> List[HistoricalKline]:
+        """Backfill Mongo from processed files if the DB is empty for this slice."""
+        if not await self._mongo_needs_backfill():
+            return new_models
+
+        processed_rows = self._load_processed()
+        if not processed_rows:
+            return new_models
+
+        # This keeps the pipeline recoverable after Mongo resets: if files already
+        # exist on disk, we can rebuild the historical collection without refetching
+        # the entire history from Binance.
+        print_step(
+            f"[mongo] empty collection for {self.symbol} {self.interval} -> backfill from processed file"
+        )
+        processed_models = [HistoricalKline(**row) for row in processed_rows]
+        if not new_models:
+            return processed_models
+
+        by_open: dict[int, HistoricalKline] = {
+            model.open_time_ms: model for model in processed_models
+        }
+        for model in new_models:
+            by_open[model.open_time_ms] = model
+        return [by_open[key] for key in sorted(by_open)]
+
+    async def _mongo_needs_backfill(self) -> bool:
+        async for client in get_historical_mongo_client():
+            collection = client.get_collection()
+            # We only need one document to know whether this symbol/interval slice
+            # already exists in MongoDB.
+            existing_doc = await collection.find_one(
+                {"symbol": self.symbol, "interval": self.interval},
+                {"_id": 1},
+            )
+            return existing_doc is None
+        return False
 
     async def _sync_mongo(self, models: List[HistoricalKline]) -> None:
         async for client in get_historical_mongo_client():

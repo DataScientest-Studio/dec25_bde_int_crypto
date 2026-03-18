@@ -1,0 +1,26 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends cron \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install uv
+
+COPY pyproject.toml .
+RUN uv pip install --system \
+    httpx \
+    pymongo \
+    motor \
+    pydantic \
+    pydantic-settings \
+    requests \
+    fastapi
+
+COPY src/ ./src/
+COPY scripts/collector-entrypoint.sh /app/scripts/collector-entrypoint.sh
+COPY scripts/collector.crontab /app/scripts/collector.crontab
+
+# The entrypoint performs one sync on startup, installs the cron schedule,
+# then keeps cron in the foreground so the container stays alive.
+CMD ["/bin/sh", "/app/scripts/collector-entrypoint.sh"]
