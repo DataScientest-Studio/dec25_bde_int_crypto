@@ -21,13 +21,13 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Get MongoDB configuration
-mongo_settings = get_settings()
 
-# MongoDB connection
-mongo_client = MongoClient(mongo_settings.mongodb_uri)
-db = mongo_client[mongo_settings.mongodb_database]
-collection = db[mongo_settings.mongodb_collection_historical]
+def get_collection():
+    """Lazy-load MongoDB collection to avoid import-time initialization."""
+    mongo_settings = get_settings()
+    mongo_client = MongoClient(mongo_settings.mongodb_uri)
+    db = mongo_client[mongo_settings.mongodb_database]
+    return db[mongo_settings.mongodb_collection_historical]
 
 
 @router.get("/search")
@@ -106,6 +106,7 @@ async def query(request: Request):
         field = field_map.get(target_name, "close")
 
         # Query MongoDB
+        collection = get_collection()
         docs = list(
             collection.find(query_filter, {"timestamp": 1, field: 1, "_id": 0})
             .sort("timestamp", 1)
