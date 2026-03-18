@@ -71,8 +71,8 @@ We use a **partial** unique index (`open_time_ms > 0`) to ignore legacy docs mis
 
 ```bash
 export BINANCE_SYMBOL="BTCUSDT"
-export BINANCE_INTERVAL="5m"          # allowed: 5m, 15m
-export BINANCE_START_DATE="2026-01-01"
+export BINANCE_INTERVAL="1day"          # allowed: 5m, 15m
+export BINANCE_START_DATE="2020-01-01"
 export BINANCE_END_DATE=""            # optional; if unset uses "now"
 
 export MONGODB_URI="mongodb://admin:password@localhost:27017/"
@@ -86,7 +86,7 @@ export MONGODB_COLLECTION_STREAMING="klines_streaming"
 ## Run
 
 ```bash
-uv run python -m src.service.binance_historical_collector
+uv run python -m src.service.batch.binance_historical_collector
 ```
 
 ---
