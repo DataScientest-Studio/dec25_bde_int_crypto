@@ -543,15 +543,16 @@ Check:
 
 Some parts of the repository are still transitional. Newcomers should know this up front.
 
-### Grafana mismatch
+### Grafana limitations
 
-There are still Grafana-related inconsistencies in the current codebase:
+Grafana is now wired to the active FastAPI Grafana routes and the historical MongoDB schema.
 
-1. [`grafana/provisioning/datasources/crypto-api.yml`](../grafana/provisioning/datasources/crypto-api.yml) still points at `http://grafana-api:8000`.
-2. [`grafana/provisioning/dashboards/crypto-realtime.json`](../grafana/provisioning/dashboards/crypto-realtime.json) still uses root-level paths such as `/query` instead of `/grafana/query`.
-3. [`src/api/routers/grafana.py`](../src/api/routers/grafana.py) currently queries a `timestamp` field, while the historical collection uses `open_time_ms` and `close_time_ms`.
+The main remaining limitation is that the current Grafana router is still effectively fixed to:
 
-Because of that, Grafana may load successfully while still showing empty panels.
+1. symbol `BTCUSDT`
+2. interval from `BINANCE_INTERVAL` with `5m` as the default
+
+So the dashboard works for the current BTC/USDT historical view, but it is not yet a general-purpose multi-symbol dashboard.
 
 ### Legacy API file
 

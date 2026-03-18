@@ -6,14 +6,17 @@ Compatible with Grafana Infinity datasource plugin.
 """
 
 import logging
-from datetime import datetime
+import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
+from bson import Decimal128
 from pymongo import MongoClient
 
 from src.config.mongo_settings import get_settings
 
 logger = logging.getLogger(__name__)
+INTERVAL = os.getenv("BINANCE_INTERVAL", "5m").strip()
 
 router = APIRouter(
     prefix="/grafana",
@@ -27,7 +30,24 @@ def get_collection():
     mongo_settings = get_settings()
     mongo_client = MongoClient(mongo_settings.mongodb_uri)
     db = mongo_client[mongo_settings.mongodb_database]
-    return db[mongo_settings.mongodb_collection_historical]
+    return mongo_client, db[mongo_settings.mongodb_collection_historical]
+
+
+def _to_epoch_ms(iso_timestamp: str) -> int:
+    """Convert an ISO timestamp into UTC epoch milliseconds."""
+    dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+def _to_number(value):
+    """Normalize Mongo numeric values into JSON-serializable numbers."""
+    if isinstance(value, Decimal128):
+        return float(value.to_decimal())
+    return float(value)
 
 
 @router.get("/search")
@@ -70,70 +90,71 @@ async def query(request: Request):
         f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}"
     )
 
-    results = []
+    field_map = {
+        "btcusdt_close": "close",
+        "btcusdt_open": "open",
+        "btcusdt_high": "high",
+        "btcusdt_low": "low",
+        "btcusdt_volume": "volume",
+        "btcusdt_quote_volume": "quote_volume",
+        "btcusdt_trade_count": "trade_count",
+    }
 
-    for target in targets:
-        target_name = target.get("target", "")
+    mongo_client, collection = get_collection()
+    try:
+        results = []
 
-        # Build MongoDB query - query ALL data, not just closed candles
-        query_filter = {"symbol": "BTCUSDT"}
+        for target in targets:
+            target_name = target.get("target", "")
+            field = field_map.get(target_name, "close")
 
-        # Add time range filter if provided
-        if range_data:
-            from_time = range_data.get("from")
-            to_time = range_data.get("to")
+            # Historical data is stored by candle open time in milliseconds.
+            query_filter = {"symbol": "BTCUSDT", "interval": INTERVAL}
 
-            if from_time and to_time:
-                # Parse ISO format timestamps
+            if range_data:
+                from_time = range_data.get("from")
+                to_time = range_data.get("to")
+
+                if from_time and to_time:
+                    try:
+                        query_filter["open_time_ms"] = {
+                            "$gte": _to_epoch_ms(from_time),
+                            "$lte": _to_epoch_ms(to_time),
+                        }
+                    except Exception as exc:
+                        logger.error(f"Error parsing timestamps: {exc}")
+
+            docs = list(
+                collection.find(query_filter, {"open_time_ms": 1, field: 1, "_id": 0})
+                .sort("open_time_ms", -1)
+                .limit(max_data_points)
+            )
+            docs.reverse()
+
+            logger.info(f"Found {len(docs)} documents for {target_name}")
+
+            datapoints = []
+            for doc in docs:
+                if "open_time_ms" not in doc or field not in doc:
+                    continue
+
                 try:
-                    from_dt = datetime.fromisoformat(from_time.replace("Z", "+00:00"))
-                    to_dt = datetime.fromisoformat(to_time.replace("Z", "+00:00"))
-                    query_filter["timestamp"] = {"$gte": from_dt, "$lte": to_dt}
-                except Exception as e:
-                    logger.error(f"Error parsing timestamps: {e}")
+                    datapoints.append(
+                        [_to_number(doc[field]), int(doc["open_time_ms"])]
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Skipping Grafana datapoint for %s due to conversion error: %s",
+                        target_name,
+                        exc,
+                    )
 
-        # Determine which field to query
-        field_map = {
-            "btcusdt_close": "close",
-            "btcusdt_open": "open",
-            "btcusdt_high": "high",
-            "btcusdt_low": "low",
-            "btcusdt_volume": "volume",
-            "btcusdt_quote_volume": "quote_volume",
-            "btcusdt_trade_count": "trade_count",
-        }
+            logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
+            results.append({"target": target_name, "datapoints": datapoints})
 
-        field = field_map.get(target_name, "close")
-
-        # Query MongoDB
-        collection = get_collection()
-        docs = list(
-            collection.find(query_filter, {"timestamp": 1, field: 1, "_id": 0})
-            .sort("timestamp", 1)
-            .limit(max_data_points)
-        )
-
-        logger.info(f"Found {len(docs)} documents for {target_name}")
-
-        # Convert to Grafana format: [[value, timestamp_ms], ...]
-        datapoints = []
-        for doc in docs:
-            if "timestamp" in doc and field in doc:
-                ts = doc["timestamp"]
-                # Convert datetime to Unix timestamp in milliseconds
-                if isinstance(ts, datetime):
-                    timestamp_ms = int(ts.timestamp() * 1000)
-                else:
-                    timestamp_ms = int(ts)
-
-                value = doc[field]
-                datapoints.append([value, timestamp_ms])
-
-        logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
-
-        results.append({"target": target_name, "datapoints": datapoints})
-
-    return results
+        return results
+    finally:
+        mongo_client.close()
 
 
 @router.get("/annotations")

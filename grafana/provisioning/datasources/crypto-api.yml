@@ -4,7 +4,7 @@ datasources:
   - name: Crypto API
     type: yesoreyeram-infinity-datasource
     access: proxy
-    url: http://grafana-api:8000
+    url: http://main:8000/grafana
     isDefault: true
     editable: true
     jsonData:
