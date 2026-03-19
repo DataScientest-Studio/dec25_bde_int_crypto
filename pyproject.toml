@@ -23,6 +23,8 @@ dependencies = [
     "uvicorn>=0.34.0",
     "websockets>=16.0",
     "python-multipart>=0.0.22",
+    "streamlit>=1.19.0",
+    "plotly>=6.6.0",
 ]
 
 [project.optional-dependencies]
