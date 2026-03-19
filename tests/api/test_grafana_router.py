@@ -1,3 +1,5 @@
+import json
+
 from bson import Decimal128
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -178,6 +180,47 @@ def test_query_falls_back_to_default_interval(monkeypatch):
     assert mongo_client.closed is True
 
 
+def test_query_accepts_form_encoded_wrapped_json(monkeypatch):
+    collection = FakeCollection(sample_docs())
+    mongo_client = FakeMongoClient()
+
+    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+
+    client = build_test_client()
+    response = client.post(
+        "/grafana/query",
+        data={
+            "data": json.dumps(
+                {
+                    "targets": [{"target": "btcusdt_close", "interval": "5m"}],
+                    "range": {
+                        "from": "2026-03-19T07:00:00Z",
+                        "to": "2026-03-19T08:00:00Z",
+                    },
+                    "maxDataPoints": 2,
+                }
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "target": "btcusdt_close",
+            "datapoints": [
+                [70181.0, 1773905700000],
+                [70097.0, 1773906000000],
+            ],
+        }
+    ]
+    assert collection.last_query_filter == {
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "open_time_ms": {"$gte": 1773903600000, "$lte": 1773907200000},
+    }
+    assert mongo_client.closed is True
+
+
 def test_candles_returns_named_rows_for_debug_panel(monkeypatch):
     collection = FakeCollection(sample_docs())
     mongo_client = FakeMongoClient()
@@ -220,6 +263,60 @@ def test_candles_returns_named_rows_for_debug_panel(monkeypatch):
             "trade_count": 13200,
         },
     ]
+    assert mongo_client.closed is True
+
+
+def test_candles_accepts_form_encoded_wrapped_json(monkeypatch):
+    collection = FakeCollection(sample_docs())
+    mongo_client = FakeMongoClient()
+
+    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+
+    client = build_test_client()
+    response = client.post(
+        "/grafana/candles",
+        data={
+            "data": json.dumps(
+                {
+                    "interval": "5m",
+                    "range": {
+                        "from": "2026-03-19T07:00:00Z",
+                        "to": "2026-03-19T08:00:00Z",
+                    },
+                    "limit": 2,
+                }
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "time": 1773905700000,
+            "open": 70110.0,
+            "high": 70190.0,
+            "low": 70080.0,
+            "close": 70181.0,
+            "volume": 90.5,
+            "quote_volume": 6340000.5,
+            "trade_count": 14000,
+        },
+        {
+            "time": 1773906000000,
+            "open": 70080.0,
+            "high": 70120.0,
+            "low": 70010.0,
+            "close": 70097.0,
+            "volume": 88.4,
+            "quote_volume": 6190000.2,
+            "trade_count": 13200,
+        },
+    ]
+    assert collection.last_query_filter == {
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "open_time_ms": {"$gte": 1773903600000, "$lte": 1773907200000},
+    }
     assert mongo_client.closed is True
 
 

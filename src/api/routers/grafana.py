@@ -5,14 +5,16 @@ This module provides Grafana-compatible JSON API endpoints for MongoDB data.
 Compatible with Grafana Infinity datasource plugin.
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter, Request
 from bson import Decimal128
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pymongo import MongoClient
 
 from src.config.mongo_settings import get_settings
@@ -180,18 +182,103 @@ def _build_query_filter(range_data: dict, *, symbol: str, interval: str) -> dict
     return query_filter
 
 
-def _query_payload_dict(payload: GrafanaQueryRequest | None) -> dict[str, Any]:
-    """Normalize query payloads for both Grafana and manual API callers."""
-    if payload is None:
-        return GrafanaQueryRequest().model_dump(by_alias=True, exclude_none=True)
-    return payload.model_dump(by_alias=True, exclude_none=True)
+def _default_payload(model_cls: type[BaseModel]) -> dict[str, Any]:
+    """Build the default payload shape for a Grafana request model."""
+    return model_cls().model_dump(by_alias=True, exclude_none=True)
 
 
-def _candle_payload_dict(payload: GrafanaCandleRequest | None) -> dict[str, Any]:
-    """Normalize candle payloads for both Grafana and manual API callers."""
+def _coerce_payload_value(value: Any) -> Any:
+    """Decode nested JSON strings that may arrive via form-encoded requests."""
+    if isinstance(value, list):
+        return [_coerce_payload_value(item) for item in value]
+
+    if isinstance(value, dict):
+        return {key: _coerce_payload_value(item) for key, item in value.items()}
+
+    if not isinstance(value, str):
+        return value
+
+    stripped = value.strip()
+    if not stripped:
+        return value
+
+    if stripped[0] not in '{["':
+        return value
+
+    try:
+        return _coerce_payload_value(json.loads(stripped))
+    except json.JSONDecodeError:
+        return value
+
+
+def _unwrap_nested_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Flatten wrapped payloads such as data=<json> sent by Infinity."""
+    for key in ("data", "payload", "body"):
+        nested = payload.get(key)
+        if not isinstance(nested, dict):
+            continue
+
+        merged = dict(nested)
+        for outer_key, outer_value in payload.items():
+            if outer_key not in {"data", "payload", "body"} and outer_key not in merged:
+                merged[outer_key] = outer_value
+        return merged
+
+    return payload
+
+
+def _normalize_payload(
+    payload: Any, *, model_cls: type[BaseModel], path: str
+) -> dict[str, Any]:
+    """Normalize flexible Grafana/Infinity payload shapes into a dict."""
+    default_payload = _default_payload(model_cls)
+
     if payload is None:
-        return GrafanaCandleRequest().model_dump(by_alias=True, exclude_none=True)
-    return payload.model_dump(by_alias=True, exclude_none=True)
+        return default_payload
+
+    payload = _coerce_payload_value(payload)
+
+    if isinstance(payload, dict):
+        payload = _unwrap_nested_payload(payload)
+        try:
+            return model_cls.model_validate(payload).model_dump(
+                by_alias=True, exclude_none=True
+            )
+        except ValidationError:
+            return payload
+
+    logger.warning(
+        "Unsupported Grafana payload shape %s for %s. Falling back to defaults.",
+        type(payload).__name__,
+        path,
+    )
+    return default_payload
+
+
+def _flatten_form_payload(payload: dict[str, list[str]]) -> dict[str, Any]:
+    """Convert parse_qs output into a simpler dict without losing JSON arrays."""
+    flattened = {}
+    for key, values in payload.items():
+        flattened[key] = values[0] if len(values) == 1 else values
+    return flattened
+
+
+async def _payload_from_request(
+    request: Request, *, model_cls: type[BaseModel]
+) -> dict[str, Any]:
+    """Parse JSON or form-encoded bodies from Grafana Infinity requests."""
+    raw_body = await request.body()
+    if not raw_body:
+        return _default_payload(model_cls)
+
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raw_text = raw_body.decode("utf-8", errors="ignore")
+        form_payload = parse_qs(raw_text, keep_blank_values=True)
+        payload = _flatten_form_payload(form_payload) if form_payload else raw_text
+
+    return _normalize_payload(payload, model_cls=model_cls, path=request.url.path)
 
 
 @router.get("/search")
@@ -213,31 +300,13 @@ def search():
 
 
 @router.post("/query", response_model=list[GrafanaDatapointSeries])
-async def query(
-    payload: GrafanaQueryRequest | None = Body(
-        default=None,
-        openapi_examples={
-            "defaultCloseSeries": {
-                "summary": "Latest close candles",
-                "value": {
-                    "targets": [{"target": "btcusdt_close", "interval": "5m"}],
-                    "interval": "5m",
-                    "range": {
-                        "from": "2026-03-19T08:00:00Z",
-                        "to": "2026-03-19T11:30:00Z",
-                    },
-                    "maxDataPoints": 100,
-                },
-            }
-        },
-    )
-):
+async def query(request: Request):
     """
     Query endpoint for Grafana.
 
     Grafana sends POST requests with target metrics and time range.
     """
-    payload = _query_payload_dict(payload)
+    payload = await _payload_from_request(request, model_cls=GrafanaQueryRequest)
     logger.info(f"Received payload: {payload}")
 
     targets = payload.get("targets") or [GrafanaTarget().model_dump(exclude_none=True)]
@@ -306,31 +375,14 @@ async def query(
 
 
 @router.post("/candles", response_model=list[GrafanaCandleRow])
-async def candles(
-    payload: GrafanaCandleRequest | None = Body(
-        default=None,
-        openapi_examples={
-            "latestCandles": {
-                "summary": "Latest candle rows",
-                "value": {
-                    "interval": "5m",
-                    "range": {
-                        "from": "2026-03-19T08:00:00Z",
-                        "to": "2026-03-19T11:30:00Z",
-                    },
-                    "limit": 50,
-                },
-            }
-        },
-    )
-):
+async def candles(request: Request):
     """
     Return full candle rows for Grafana table/debug panels.
 
     This keeps the data readable in Grafana instead of exposing raw [value, time]
     arrays.
     """
-    payload = _candle_payload_dict(payload)
+    payload = await _payload_from_request(request, model_cls=GrafanaCandleRequest)
     targets = payload.get("targets", [])
     range_data = payload.get("range", {})
     limit = _to_positive_int(payload.get("limit", payload.get("maxDataPoints")), 200)
@@ -414,24 +466,9 @@ def annotations_get():
 
 
 @router.post("/annotations", response_model=list[GrafanaAnnotation])
-def annotations_post(
-    payload: GrafanaAnnotationRequest | None = Body(
-        default=None,
-        openapi_examples={
-            "emptyAnnotations": {
-                "summary": "No annotations configured",
-                "value": {
-                    "range": {
-                        "from": "2026-03-19T08:00:00Z",
-                        "to": "2026-03-19T11:30:00Z",
-                    }
-                },
-            }
-        },
-    )
-):
+async def annotations_post(request: Request):
     """
     POST variant of the annotations endpoint for Grafana-compatible clients.
     """
-    del payload
+    await _payload_from_request(request, model_cls=GrafanaAnnotationRequest)
     return _annotation_response()
