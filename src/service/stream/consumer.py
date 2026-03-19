@@ -78,7 +78,11 @@ class BinanceKlineConsumer:
             loglevel="INFO",
         )
         self.kafka_client = KafkaConsumerClient(kafka_config)
-        self.kafka_client.connect()
+        if not self.kafka_client.connect():
+            raise RuntimeError(
+                "Kafka consumer initialization failed; "
+                "the streaming consumer cannot run without Redpanda."
+            )
 
         logger.info(
             f"Consumer initialized: broker={kafka_config.broker_address}, "
@@ -116,8 +120,19 @@ class BinanceKlineConsumer:
             return
 
         try:
-            # Unique index on event_time to ensure each message is stored only once
-            await self.collection.create_index([("event_time", 1)], unique=True)
+            # Drop the legacy event_time-only unique index so multiple symbols or
+            # intervals can coexist even when Binance emits the same event_time.
+            index_info = await self.collection.index_information()
+            legacy_index = index_info.get("event_time_1")
+            if legacy_index and legacy_index.get("unique"):
+                await self.collection.drop_index("event_time_1")
+                logger.info("Dropped legacy MongoDB index: event_time_1")
+
+            await self.collection.create_index(
+                [("symbol", 1), ("interval", 1), ("event_time", 1)],
+                unique=True,
+                name="uniq_symbol_interval_event_time",
+            )
             await self.collection.create_index(
                 [("symbol", 1), ("interval", 1), ("timestamp", -1)]
             )
@@ -148,14 +163,19 @@ class BinanceKlineConsumer:
                     self._async_insert(kline_msg), self._loop
                 )
 
-            # Print to console immediately (non-blocking)
+            # Emit one log line per consumed message so container logs stay useful.
             status = "CLOSED" if kline_msg.is_closed else "UPDATE"
-            print(
-                f"[{status}] {kline_msg.symbol} {kline_msg.interval} | "
-                f"Time: {kline_msg.timestamp} | "
-                f"O: {kline_msg.open:.2f} H: {kline_msg.high:.2f} "
-                f"L: {kline_msg.low:.2f} C: {kline_msg.close:.2f} | "
-                f"Vol: {kline_msg.volume:.2f}"
+            logger.info(
+                "[%s] %s %s | Time: %s | O: %.2f H: %.2f L: %.2f C: %.2f | Vol: %.2f",
+                status,
+                kline_msg.symbol,
+                kline_msg.interval,
+                kline_msg.timestamp,
+                kline_msg.open,
+                kline_msg.high,
+                kline_msg.low,
+                kline_msg.close,
+                kline_msg.volume,
             )
 
         except Exception as e:
@@ -176,7 +196,7 @@ class BinanceKlineConsumer:
         try:
             mongo_doc = kline_msg.to_mongo_doc()
 
-            # Insert the document - unique index on event_time prevents duplicates
+            # The composite unique index keeps replays idempotent per stream.
             result = await self.collection.insert_one(mongo_doc)
 
             logger.debug(
@@ -185,9 +205,11 @@ class BinanceKlineConsumer:
             )
 
         except errors.DuplicateKeyError:
-            # Message already exists (duplicate event_time) - skip silently
+            # Message already exists for this symbol/interval/event_time - skip silently
             logger.debug(
-                f"Duplicate message skipped: event_time={kline_msg.event_time}"
+                "Duplicate message skipped: "
+                f"symbol={kline_msg.symbol}, interval={kline_msg.interval}, "
+                f"event_time={kline_msg.event_time}"
             )
         except Exception as e:
             logger.error(f"MongoDB insert error: {e}")

@@ -13,10 +13,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routers import grafana, predict_logistic_regression
-from src.config.mongo_settings import get_settings
-
-# Get configuration from mongo settings
-mongo_settings = get_settings()
 
 # Configure logging
 logging.basicConfig(

@@ -1,0 +1,30 @@
+FROM python:3.13-slim
+
+WORKDIR /app
+
+# Copy dependency files
+COPY ./pyproject.toml ./
+
+# Install only the runtime dependencies needed by the API app.
+RUN pip install uv && \
+    uv pip install --system \
+    fastapi \
+    uvicorn \
+    pandas \
+    numpy \
+    scikit-learn \
+    joblib \
+    pydantic \
+    pydantic-settings \
+    python-multipart \
+    pymongo \
+    motor
+
+# Copy application code
+COPY ./src ./src/
+
+# Expose API port
+EXPOSE 8000
+
+# Run the API server
+CMD ["python", "-m", "src.api.main"]

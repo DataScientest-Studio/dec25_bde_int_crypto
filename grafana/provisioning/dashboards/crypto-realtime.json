@@ -188,7 +188,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_close\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -218,7 +218,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_open\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -248,7 +248,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_high\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -278,7 +278,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_low\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -394,7 +394,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_volume\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -510,7 +510,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_trade_count\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -626,7 +626,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_quote_volume\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
             "method": "POST"
@@ -697,7 +697,7 @@
           "root_selector": "[0].datapoints",
           "source": "url",
           "type": "json",
-          "url": "http://grafana-api:8000/query",
+          "url": "http://main:8000/grafana/query",
           "url_options": {
             "data": "{\"targets\":[{\"target\":\"btcusdt_close\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":50}",
             "method": "POST"
