@@ -89,10 +89,10 @@ class BinanceWebSocketCollector:
             )
             self.kafka_client = KafkaProducerClient(kafka_config)
             if not self.kafka_client.connect():
-                logger.warning(
-                    "Kafka producer initialization failed, will continue without Kafka"
+                raise RuntimeError(
+                    "Kafka producer initialization failed; "
+                    "the streaming producer cannot run without Redpanda."
                 )
-                self.kafka_client = None
         else:
             self.kafka_client = None
             logger.info("Kafka producer disabled")
