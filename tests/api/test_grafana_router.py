@@ -221,3 +221,52 @@ def test_candles_returns_named_rows_for_debug_panel(monkeypatch):
         },
     ]
     assert mongo_client.closed is True
+
+
+def test_query_returns_default_close_series_when_body_is_missing(monkeypatch):
+    collection = FakeCollection(sample_docs())
+    mongo_client = FakeMongoClient()
+
+    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+
+    client = build_test_client()
+    response = client.post("/grafana/query")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "target": "btcusdt_close",
+            "datapoints": [
+                [70181.0, 1773905700000],
+                [70097.0, 1773906000000],
+            ],
+        }
+    ]
+    assert collection.last_query_filter["interval"] == "5m"
+    assert mongo_client.closed is True
+
+
+def test_annotations_get_returns_empty_list_body():
+    client = build_test_client()
+
+    response = client.get("/grafana/annotations")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_annotations_post_returns_empty_list_body():
+    client = build_test_client()
+
+    response = client.post(
+        "/grafana/annotations",
+        json={
+            "range": {
+                "from": "2026-03-19T07:00:00Z",
+                "to": "2026-03-19T08:00:00Z",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []

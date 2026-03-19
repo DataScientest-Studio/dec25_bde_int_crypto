@@ -8,9 +8,11 @@ Compatible with Grafana Infinity datasource plugin.
 import logging
 import os
 from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Body
 from bson import Decimal128
+from pydantic import BaseModel, ConfigDict, Field
 from pymongo import MongoClient
 
 from src.config.mongo_settings import get_settings
@@ -25,6 +27,70 @@ router = APIRouter(
     tags=["grafana"],
     responses={404: {"description": "Not found"}},
 )
+
+
+class GrafanaTimeRange(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+
+class GrafanaTarget(BaseModel):
+    target: str = "btcusdt_close"
+    interval: str | None = None
+    symbol: str | None = None
+
+
+class GrafanaQueryRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    targets: list[GrafanaTarget] = Field(default_factory=lambda: [GrafanaTarget()])
+    range: GrafanaTimeRange = Field(default_factory=GrafanaTimeRange)
+    maxDataPoints: int = Field(default=1000, ge=1)
+    interval: str | None = None
+    symbol: str | None = None
+
+
+class GrafanaDatapointSeries(BaseModel):
+    target: str
+    datapoints: list[tuple[float, int]]
+
+
+class GrafanaCandleRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    targets: list[GrafanaTarget] = Field(default_factory=list)
+    range: GrafanaTimeRange = Field(default_factory=GrafanaTimeRange)
+    maxDataPoints: int | None = Field(default=None, ge=1)
+    limit: int | None = Field(default=None, ge=1)
+    interval: str | None = None
+    symbol: str | None = None
+
+
+class GrafanaCandleRow(BaseModel):
+    time: int
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    quote_volume: float
+    trade_count: int
+
+
+class GrafanaAnnotationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    range: GrafanaTimeRange = Field(default_factory=GrafanaTimeRange)
+    annotation: dict[str, Any] | None = None
+
+
+class GrafanaAnnotation(BaseModel):
+    time: int
+    title: str
+    text: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 def get_collection():
@@ -114,6 +180,20 @@ def _build_query_filter(range_data: dict, *, symbol: str, interval: str) -> dict
     return query_filter
 
 
+def _query_payload_dict(payload: GrafanaQueryRequest | None) -> dict[str, Any]:
+    """Normalize query payloads for both Grafana and manual API callers."""
+    if payload is None:
+        return GrafanaQueryRequest().model_dump(by_alias=True, exclude_none=True)
+    return payload.model_dump(by_alias=True, exclude_none=True)
+
+
+def _candle_payload_dict(payload: GrafanaCandleRequest | None) -> dict[str, Any]:
+    """Normalize candle payloads for both Grafana and manual API callers."""
+    if payload is None:
+        return GrafanaCandleRequest().model_dump(by_alias=True, exclude_none=True)
+    return payload.model_dump(by_alias=True, exclude_none=True)
+
+
 @router.get("/search")
 def search():
     """
@@ -132,21 +212,35 @@ def search():
     ]
 
 
-@router.post("/query")
-async def query(request: Request):
+@router.post("/query", response_model=list[GrafanaDatapointSeries])
+async def query(
+    payload: GrafanaQueryRequest | None = Body(
+        default=None,
+        openapi_examples={
+            "defaultCloseSeries": {
+                "summary": "Latest close candles",
+                "value": {
+                    "targets": [{"target": "btcusdt_close", "interval": "5m"}],
+                    "interval": "5m",
+                    "range": {
+                        "from": "2026-03-19T08:00:00Z",
+                        "to": "2026-03-19T11:30:00Z",
+                    },
+                    "maxDataPoints": 100,
+                },
+            }
+        },
+    )
+):
     """
     Query endpoint for Grafana.
 
     Grafana sends POST requests with target metrics and time range.
     """
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-
+    payload = _query_payload_dict(payload)
     logger.info(f"Received payload: {payload}")
 
-    targets = payload.get("targets", [])
+    targets = payload.get("targets") or [GrafanaTarget().model_dump(exclude_none=True)]
     range_data = payload.get("range", {})
     max_data_points = _to_positive_int(payload.get("maxDataPoints"), 1000)
     symbol = _resolve_symbol(payload, targets)
@@ -211,19 +305,32 @@ async def query(request: Request):
         mongo_client.close()
 
 
-@router.post("/candles")
-async def candles(request: Request):
+@router.post("/candles", response_model=list[GrafanaCandleRow])
+async def candles(
+    payload: GrafanaCandleRequest | None = Body(
+        default=None,
+        openapi_examples={
+            "latestCandles": {
+                "summary": "Latest candle rows",
+                "value": {
+                    "interval": "5m",
+                    "range": {
+                        "from": "2026-03-19T08:00:00Z",
+                        "to": "2026-03-19T11:30:00Z",
+                    },
+                    "limit": 50,
+                },
+            }
+        },
+    )
+):
     """
     Return full candle rows for Grafana table/debug panels.
 
     This keeps the data readable in Grafana instead of exposing raw [value, time]
     arrays.
     """
-    try:
-        payload = await request.json()
-    except Exception:
-        payload = {}
-
+    payload = _candle_payload_dict(payload)
     targets = payload.get("targets", [])
     range_data = payload.get("range", {})
     limit = _to_positive_int(payload.get("limit", payload.get("maxDataPoints")), 200)
@@ -291,11 +398,40 @@ async def candles(request: Request):
         mongo_client.close()
 
 
-@router.get("/annotations")
-def annotations():
+def _annotation_response() -> list[GrafanaAnnotation]:
+    """Return an empty annotation list with an explicit schema."""
+    return []
+
+
+@router.get("/annotations", response_model=list[GrafanaAnnotation])
+def annotations_get():
     """
     Annotations endpoint for Grafana.
 
     Can be used to show events/markers on the chart.
     """
-    return []
+    return _annotation_response()
+
+
+@router.post("/annotations", response_model=list[GrafanaAnnotation])
+def annotations_post(
+    payload: GrafanaAnnotationRequest | None = Body(
+        default=None,
+        openapi_examples={
+            "emptyAnnotations": {
+                "summary": "No annotations configured",
+                "value": {
+                    "range": {
+                        "from": "2026-03-19T08:00:00Z",
+                        "to": "2026-03-19T11:30:00Z",
+                    }
+                },
+            }
+        },
+    )
+):
+    """
+    POST variant of the annotations endpoint for Grafana-compatible clients.
+    """
+    del payload
+    return _annotation_response()
