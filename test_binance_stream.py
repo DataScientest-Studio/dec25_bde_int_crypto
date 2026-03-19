@@ -1,14 +1,9 @@
 """Test Binance streaming with Kafka producer"""
 
 import asyncio
-import sys
-import os
 
-# Add the project root to Python path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from src.service.stream import BinanceWebSocketCollector
 from src.constants import SYMBOL, INTERVAL
+from src.service.stream import BinanceWebSocketCollector
 
 
 async def test_stream():
