@@ -4,7 +4,6 @@ import requests
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import time
 
 # ── API configuration — reads from environment variable set in docker-compose ──
 API_URL = os.getenv("API_URL", "http://prediction-api:8000")
@@ -44,29 +43,48 @@ with st.sidebar:
 @st.cache_data(ttl=30)
 def fetch_predictions(symbol: str, limit: int):
     """
-    Calls the prediction API and returns the JSON response.
-    Returns None if the API is unreachable or returns an error.
+    Calls the prediction API and returns a small status envelope for the UI.
     """
     try:
         response = requests.get(
             f"{API_URL}/predict/logistic/{symbol}", params={"limit": limit}, timeout=10
         )
-        response.raise_for_status()
-        return response.json()
-    except Exception:
-        return None
+        if response.ok:
+            return {"ok": True, "data": response.json(), "detail": None}
+
+        detail = response.text
+        try:
+            detail = response.json().get("detail", detail)
+        except ValueError:
+            pass
+
+        return {"ok": False, "data": None, "detail": detail, "status": response.status_code}
+    except requests.RequestException as exc:
+        return {"ok": False, "data": None, "detail": str(exc), "status": None}
 
 
-data = fetch_predictions(symbol, limit)
+result = fetch_predictions(symbol, limit)
 
 # ── Page header ────────────────────────────────────────────────────────────────
 st.title("📈 Crypto ML Signal Dashboard")
 st.caption(f"Model: Logistic Regression · Symbol: {symbol}")
 
 # ── Error state — stop rendering if API is down ────────────────────────────────
-if data is None:
-    st.error("❌ Cannot reach the prediction API. Make sure prediction-api is running.")
+if not result["ok"]:
+    if result["status"] == 503 and "Model not loaded" in str(result["detail"]):
+        st.error(
+            "❌ Prediction API is running, but the model artifacts are not loaded yet. "
+            "Run the trainer or start the stack with ./scripts/docker-up-clean.sh."
+        )
+    elif result["status"] is not None:
+        st.error(f"❌ Prediction API error ({result['status']}): {result['detail']}")
+    else:
+        st.error(
+            "❌ Cannot reach the prediction API. Make sure prediction-api is running."
+        )
     st.stop()
+
+data = result["data"]
 
 # ── Extract key values from API response ──────────────────────────────────────
 signal = data["latest_signal"]
