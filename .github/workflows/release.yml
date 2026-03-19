@@ -50,6 +50,10 @@ jobs:
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Python Version:** ${{ matrix.python-version }}" >> $GITHUB_STEP_SUMMARY
 
-    - name: Build Docker image
+    - name: Build Docker images
       run: |
-        docker build -t crypto-data-api:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.main -t crypto-data-api-main:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.collector -t crypto-data-api-collector:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.trainer -t crypto-data-api-trainer:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.prediction-api -t crypto-data-api-prediction-api:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.stream -t crypto-data-api-stream:${{ github.sha }} .
