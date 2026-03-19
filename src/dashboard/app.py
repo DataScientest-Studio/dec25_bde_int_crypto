@@ -58,7 +58,12 @@ def fetch_predictions(symbol: str, limit: int):
         except ValueError:
             pass
 
-        return {"ok": False, "data": None, "detail": detail, "status": response.status_code}
+        return {
+            "ok": False,
+            "data": None,
+            "detail": detail,
+            "status": response.status_code,
+        }
     except requests.RequestException as exc:
         return {"ok": False, "data": None, "detail": str(exc), "status": None}
 
