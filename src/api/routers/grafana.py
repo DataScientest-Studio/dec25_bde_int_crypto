@@ -226,9 +226,7 @@ async def candles(request: Request):
 
     targets = payload.get("targets", [])
     range_data = payload.get("range", {})
-    limit = _to_positive_int(
-        payload.get("limit", payload.get("maxDataPoints")), 200
-    )
+    limit = _to_positive_int(payload.get("limit", payload.get("maxDataPoints")), 200)
     symbol = _resolve_symbol(payload, targets)
     interval = _resolve_interval(payload, targets)
     query_filter = _build_query_filter(range_data, symbol=symbol, interval=interval)
@@ -284,7 +282,9 @@ async def candles(request: Request):
                     }
                 )
             except Exception as exc:
-                logger.warning("Skipping Grafana candle row due to conversion error: %s", exc)
+                logger.warning(
+                    "Skipping Grafana candle row due to conversion error: %s", exc
+                )
 
         return rows
     finally:

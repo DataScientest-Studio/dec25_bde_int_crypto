@@ -40,7 +40,10 @@ class FakeCollection:
             time_range = query_filter.get("open_time_ms")
             if time_range:
                 open_time_ms = doc["open_time_ms"]
-                if open_time_ms < time_range["$gte"] or open_time_ms > time_range["$lte"]:
+                if (
+                    open_time_ms < time_range["$gte"]
+                    or open_time_ms > time_range["$lte"]
+                ):
                     continue
 
             projected = {
