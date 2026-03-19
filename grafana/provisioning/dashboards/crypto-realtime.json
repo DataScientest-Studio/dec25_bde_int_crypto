@@ -28,9 +28,6 @@
       },
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
           "custom": {
             "axisBorderShow": false,
             "axisCenteredZero": false,
@@ -39,21 +36,21 @@
             "axisPlacement": "auto",
             "barAlignment": 0,
             "drawStyle": "line",
-            "fillOpacity": 8,
-            "gradientMode": "opacity",
+            "fillOpacity": 25,
+            "gradientMode": "none",
             "hideFrom": {
               "tooltip": false,
               "viz": false,
               "legend": false
             },
             "insertNulls": false,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
             "pointSize": 4,
             "scaleDistribution": {
               "type": "linear"
             },
-            "showPoints": "never",
+            "showPoints": "auto",
             "spanNulls": true,
             "stacking": {
               "group": "A",
@@ -75,68 +72,7 @@
           },
           "unit": "currencyUSD"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "btcusdt_high"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#73BF69",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "btcusdt_low"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#F2495C",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "btcusdt_open"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#FADE2A",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "btcusdt_close"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#5794F2",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 12,
@@ -146,17 +82,27 @@
       },
       "id": 1,
       "options": {
-        "legend": {
-          "calcs": [
-            "last",
-            "mean",
-            "min",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+        "candleStyle": "candles",
+        "colorStrategy": "open-close",
+        "colors": {
+          "down": "red",
+          "up": "green"
         },
+        "fields": {
+          "close": "Close",
+          "high": "High",
+          "low": "Low",
+          "open": "Open",
+          "volume": "Volume"
+        },
+        "includeAllFields": false,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mode": "candles",
         "tooltip": {
           "mode": "multi",
           "sort": "none"
@@ -167,104 +113,34 @@
         {
           "columns": [
             {
-              "selector": "[0]",
-              "text": "Close",
-              "type": "number"
+              "selector": "time",
+              "text": "Time",
+              "type": "timestamp_epoch_ms"
             },
             {
-              "selector": "[1]",
-              "text": "Time",
-              "type": "timestamp"
-            }
-          ],
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "PFE0D5F1B053322F6"
-          },
-          "filters": [],
-          "format": "timeseries",
-          "global_query_id": "",
-          "refId": "Close",
-          "root_selector": "[0].datapoints",
-          "source": "url",
-          "type": "json",
-          "url": "http://main:8000/grafana/query",
-          "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_close\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
-            "method": "POST"
-          }
-        },
-        {
-          "columns": [
-            {
-              "selector": "[0]",
+              "selector": "open",
               "text": "Open",
               "type": "number"
             },
             {
-              "selector": "[1]",
-              "text": "Time",
-              "type": "timestamp"
-            }
-          ],
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "PFE0D5F1B053322F6"
-          },
-          "filters": [],
-          "format": "timeseries",
-          "global_query_id": "",
-          "refId": "Open",
-          "root_selector": "[0].datapoints",
-          "source": "url",
-          "type": "json",
-          "url": "http://main:8000/grafana/query",
-          "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_open\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
-            "method": "POST"
-          }
-        },
-        {
-          "columns": [
-            {
-              "selector": "[0]",
+              "selector": "high",
               "text": "High",
               "type": "number"
             },
             {
-              "selector": "[1]",
-              "text": "Time",
-              "type": "timestamp"
-            }
-          ],
-          "datasource": {
-            "type": "yesoreyeram-infinity-datasource",
-            "uid": "PFE0D5F1B053322F6"
-          },
-          "filters": [],
-          "format": "timeseries",
-          "global_query_id": "",
-          "refId": "High",
-          "root_selector": "[0].datapoints",
-          "source": "url",
-          "type": "json",
-          "url": "http://main:8000/grafana/query",
-          "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_high\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
-            "method": "POST"
-          }
-        },
-        {
-          "columns": [
-            {
-              "selector": "[0]",
+              "selector": "low",
               "text": "Low",
               "type": "number"
             },
             {
-              "selector": "[1]",
-              "text": "Time",
-              "type": "timestamp"
+              "selector": "close",
+              "text": "Close",
+              "type": "number"
+            },
+            {
+              "selector": "volume",
+              "text": "Volume",
+              "type": "number"
             }
           ],
           "datasource": {
@@ -272,21 +148,21 @@
             "uid": "PFE0D5F1B053322F6"
           },
           "filters": [],
-          "format": "timeseries",
+          "format": "table",
           "global_query_id": "",
-          "refId": "Low",
-          "root_selector": "[0].datapoints",
+          "refId": "Candles",
+          "root_selector": "$[*]",
           "source": "url",
           "type": "json",
-          "url": "http://main:8000/grafana/query",
+          "url": "http://main:8000/grafana/candles",
           "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_low\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
+            "data": "{\"interval\":\"${interval}\",\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"limit\":1000}",
             "method": "POST"
           }
         }
       ],
-      "title": "BTC/USDT — OHLC Prices",
-      "type": "timeseries"
+      "title": "BTC/USDT — Candles",
+      "type": "candlestick"
     },
     {
       "datasource": {
@@ -373,14 +249,14 @@
         {
           "columns": [
             {
-              "selector": "[0]",
+              "selector": "volume",
               "text": "Volume",
               "type": "number"
             },
             {
-              "selector": "[1]",
+              "selector": "time",
               "text": "Time",
-              "type": "timestamp"
+              "type": "timestamp_epoch_ms"
             }
           ],
           "datasource": {
@@ -388,15 +264,15 @@
             "uid": "PFE0D5F1B053322F6"
           },
           "filters": [],
-          "format": "timeseries",
+          "format": "table",
           "global_query_id": "",
           "refId": "Volume",
-          "root_selector": "[0].datapoints",
+          "root_selector": "$[*]",
           "source": "url",
           "type": "json",
-          "url": "http://main:8000/grafana/query",
+          "url": "http://main:8000/grafana/candles",
           "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_volume\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
+            "data": "{\"interval\":\"${interval}\",\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"limit\":1000}",
             "method": "POST"
           }
         }
@@ -489,14 +365,14 @@
         {
           "columns": [
             {
-              "selector": "[0]",
+              "selector": "trade_count",
               "text": "Trades",
               "type": "number"
             },
             {
-              "selector": "[1]",
+              "selector": "time",
               "text": "Time",
-              "type": "timestamp"
+              "type": "timestamp_epoch_ms"
             }
           ],
           "datasource": {
@@ -504,15 +380,15 @@
             "uid": "PFE0D5F1B053322F6"
           },
           "filters": [],
-          "format": "timeseries",
+          "format": "table",
           "global_query_id": "",
           "refId": "Trades",
-          "root_selector": "[0].datapoints",
+          "root_selector": "$[*]",
           "source": "url",
           "type": "json",
-          "url": "http://main:8000/grafana/query",
+          "url": "http://main:8000/grafana/candles",
           "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_trade_count\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
+            "data": "{\"interval\":\"${interval}\",\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"limit\":1000}",
             "method": "POST"
           }
         }
@@ -605,14 +481,14 @@
         {
           "columns": [
             {
-              "selector": "[0]",
+              "selector": "quote_volume",
               "text": "Quote Volume",
               "type": "number"
             },
             {
-              "selector": "[1]",
+              "selector": "time",
               "text": "Time",
-              "type": "timestamp"
+              "type": "timestamp_epoch_ms"
             }
           ],
           "datasource": {
@@ -620,15 +496,15 @@
             "uid": "PFE0D5F1B053322F6"
           },
           "filters": [],
-          "format": "timeseries",
+          "format": "table",
           "global_query_id": "",
           "refId": "QuoteVolume",
-          "root_selector": "[0].datapoints",
+          "root_selector": "$[*]",
           "source": "url",
           "type": "json",
-          "url": "http://main:8000/grafana/query",
+          "url": "http://main:8000/grafana/candles",
           "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_quote_volume\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":1000}",
+            "data": "{\"interval\":\"${interval}\",\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"limit\":1000}",
             "method": "POST"
           }
         }
@@ -685,7 +561,48 @@
       "pluginVersion": "11.4.0",
       "targets": [
         {
-          "columns": [],
+          "columns": [
+            {
+              "selector": "time",
+              "text": "Time",
+              "type": "timestamp_epoch_ms"
+            },
+            {
+              "selector": "open",
+              "text": "Open",
+              "type": "number"
+            },
+            {
+              "selector": "high",
+              "text": "High",
+              "type": "number"
+            },
+            {
+              "selector": "low",
+              "text": "Low",
+              "type": "number"
+            },
+            {
+              "selector": "close",
+              "text": "Close",
+              "type": "number"
+            },
+            {
+              "selector": "volume",
+              "text": "Volume",
+              "type": "number"
+            },
+            {
+              "selector": "quote_volume",
+              "text": "Quote Volume",
+              "type": "number"
+            },
+            {
+              "selector": "trade_count",
+              "text": "Trades",
+              "type": "number"
+            }
+          ],
           "datasource": {
             "type": "yesoreyeram-infinity-datasource",
             "uid": "PFE0D5F1B053322F6"
@@ -694,17 +611,17 @@
           "format": "table",
           "global_query_id": "",
           "refId": "RawData",
-          "root_selector": "[0].datapoints",
+          "root_selector": "$[*]",
           "source": "url",
           "type": "json",
-          "url": "http://main:8000/grafana/query",
+          "url": "http://main:8000/grafana/candles",
           "url_options": {
-            "data": "{\"targets\":[{\"target\":\"btcusdt_close\"}],\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"maxDataPoints\":50}",
+            "data": "{\"interval\":\"${interval}\",\"range\":{\"from\":\"${__from:date:iso}\",\"to\":\"${__to:date:iso}\"},\"limit\":50}",
             "method": "POST"
           }
         }
       ],
-      "title": "Raw Data (Debug)",
+      "title": "Latest Candle Rows (Debug)",
       "type": "table"
     }
   ],
@@ -731,11 +648,6 @@
         "name": "interval",
         "options": [
           {
-            "selected": false,
-            "text": "1m",
-            "value": "1m"
-          },
-          {
             "selected": true,
             "text": "5m",
             "value": "5m"
@@ -744,24 +656,9 @@
             "selected": false,
             "text": "15m",
             "value": "15m"
-          },
-          {
-            "selected": false,
-            "text": "1h",
-            "value": "1h"
-          },
-          {
-            "selected": false,
-            "text": "4h",
-            "value": "4h"
-          },
-          {
-            "selected": false,
-            "text": "1d",
-            "value": "1d"
           }
         ],
-        "query": "1m,5m,15m,1h,4h,1d",
+        "query": "5m,15m",
         "queryValue": "",
         "skipUrlSync": false,
         "type": "custom"
@@ -799,6 +696,6 @@
   "timezone": "browser",
   "title": "Binance Real-Time Crypto Dashboard",
   "uid": "binance-crypto-realtime",
-  "version": 5,
+  "version": 7,
   "weekStart": ""
 }

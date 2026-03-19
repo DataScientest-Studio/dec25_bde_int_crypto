@@ -14,9 +14,11 @@ from bson import Decimal128
 from pymongo import MongoClient
 
 from src.config.mongo_settings import get_settings
+from src.models.models import SUPPORTED_INTERVALS
 
 logger = logging.getLogger(__name__)
-INTERVAL = os.getenv("BINANCE_INTERVAL", "5m").strip()
+DEFAULT_INTERVAL = os.getenv("BINANCE_INTERVAL", "5m").strip()
+DEFAULT_SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT").strip().upper()
 
 router = APIRouter(
     prefix="/grafana",
@@ -48,6 +50,68 @@ def _to_number(value):
     if isinstance(value, Decimal128):
         return float(value.to_decimal())
     return float(value)
+
+
+def _to_positive_int(value, default: int) -> int:
+    """Safely coerce Grafana payload limits into positive integers."""
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _resolve_symbol(payload: dict, targets: list[dict]) -> str:
+    """Resolve symbol from the request while keeping a stable default."""
+    candidate = str(payload.get("symbol", "")).strip().upper()
+    if candidate:
+        return candidate
+
+    for target in targets:
+        candidate = str(target.get("symbol", "")).strip().upper()
+        if candidate:
+            return candidate
+
+    return DEFAULT_SYMBOL
+
+
+def _resolve_interval(payload: dict, targets: list[dict]) -> str:
+    """Resolve the requested interval, falling back to the configured default."""
+    candidate = str(payload.get("interval", "")).strip()
+    if not candidate:
+        for target in targets:
+            candidate = str(target.get("interval", "")).strip()
+            if candidate:
+                break
+
+    if candidate in SUPPORTED_INTERVALS:
+        return candidate
+
+    if candidate:
+        logger.warning(
+            "Unsupported Grafana interval %s. Falling back to %s.",
+            candidate,
+            DEFAULT_INTERVAL,
+        )
+    return DEFAULT_INTERVAL
+
+
+def _build_query_filter(range_data: dict, *, symbol: str, interval: str) -> dict:
+    """Build a MongoDB filter from Grafana range data."""
+    query_filter = {"symbol": symbol, "interval": interval}
+
+    from_time = range_data.get("from")
+    to_time = range_data.get("to")
+    if from_time and to_time:
+        try:
+            query_filter["open_time_ms"] = {
+                "$gte": _to_epoch_ms(from_time),
+                "$lte": _to_epoch_ms(to_time),
+            }
+        except Exception as exc:
+            logger.error(f"Error parsing timestamps: {exc}")
+
+    return query_filter
 
 
 @router.get("/search")
@@ -84,7 +148,9 @@ async def query(request: Request):
 
     targets = payload.get("targets", [])
     range_data = payload.get("range", {})
-    max_data_points = payload.get("maxDataPoints", 1000)
+    max_data_points = _to_positive_int(payload.get("maxDataPoints"), 1000)
+    symbol = _resolve_symbol(payload, targets)
+    interval = _resolve_interval(payload, targets)
 
     logger.info(
         f"Query request: targets={targets}, range={range_data}, max_points={max_data_points}"
@@ -108,21 +174,9 @@ async def query(request: Request):
             target_name = target.get("target", "")
             field = field_map.get(target_name, "close")
 
-            # Historical data is stored by candle open time in milliseconds.
-            query_filter = {"symbol": "BTCUSDT", "interval": INTERVAL}
-
-            if range_data:
-                from_time = range_data.get("from")
-                to_time = range_data.get("to")
-
-                if from_time and to_time:
-                    try:
-                        query_filter["open_time_ms"] = {
-                            "$gte": _to_epoch_ms(from_time),
-                            "$lte": _to_epoch_ms(to_time),
-                        }
-                    except Exception as exc:
-                        logger.error(f"Error parsing timestamps: {exc}")
+            query_filter = _build_query_filter(
+                range_data, symbol=symbol, interval=interval
+            )
 
             docs = list(
                 collection.find(query_filter, {"open_time_ms": 1, field: 1, "_id": 0})
@@ -153,6 +207,86 @@ async def query(request: Request):
             results.append({"target": target_name, "datapoints": datapoints})
 
         return results
+    finally:
+        mongo_client.close()
+
+
+@router.post("/candles")
+async def candles(request: Request):
+    """
+    Return full candle rows for Grafana table/debug panels.
+
+    This keeps the data readable in Grafana instead of exposing raw [value, time]
+    arrays.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+
+    targets = payload.get("targets", [])
+    range_data = payload.get("range", {})
+    limit = _to_positive_int(
+        payload.get("limit", payload.get("maxDataPoints")), 200
+    )
+    symbol = _resolve_symbol(payload, targets)
+    interval = _resolve_interval(payload, targets)
+    query_filter = _build_query_filter(range_data, symbol=symbol, interval=interval)
+
+    mongo_client, collection = get_collection()
+    try:
+        docs = list(
+            collection.find(
+                query_filter,
+                {
+                    "open_time_ms": 1,
+                    "open": 1,
+                    "high": 1,
+                    "low": 1,
+                    "close": 1,
+                    "volume": 1,
+                    "quote_volume": 1,
+                    "trade_count": 1,
+                    "_id": 0,
+                },
+            )
+            .sort("open_time_ms", -1)
+            .limit(limit)
+        )
+        docs.reverse()
+
+        rows = []
+        for doc in docs:
+            required_fields = {
+                "open_time_ms",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "quote_volume",
+                "trade_count",
+            }
+            if not required_fields.issubset(doc):
+                continue
+
+            try:
+                rows.append(
+                    {
+                        "time": int(doc["open_time_ms"]),
+                        "open": _to_number(doc["open"]),
+                        "high": _to_number(doc["high"]),
+                        "low": _to_number(doc["low"]),
+                        "close": _to_number(doc["close"]),
+                        "volume": _to_number(doc["volume"]),
+                        "quote_volume": _to_number(doc["quote_volume"]),
+                        "trade_count": int(doc["trade_count"]),
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Skipping Grafana candle row due to conversion error: %s", exc)
+
+        return rows
     finally:
         mongo_client.close()
 

@@ -19,14 +19,15 @@ Since the MongoDB plugin requires Enterprise license, we'll use the API endpoint
 4. Select **Infinity**
 5. Configure:
    - Name: `Crypto API`
-   - URL: `http://grafana-api:8000`
+   - URL: `http://main:8000/grafana`
 6. Click **Save & Test**
 
 ### Option 2: Use TestData or Manual Entry
 
 The API is running at `http://localhost:8000` with these endpoints:
-- `GET /search` - Returns available metrics
-- `POST /query` - Returns time series data
+- `GET /grafana/search` - Returns available metrics
+- `POST /grafana/query` - Returns time series data
+- `POST /grafana/candles` - Returns readable candle rows for debug tables
 
 Available metrics:
 - `btcusdt_close` - Close price
@@ -42,7 +43,7 @@ Available metrics:
 ### Quick Dashboard Import
 
 1. Go to **Dashboards > Import**
-2. Upload the file: `grafana/provisioning/dashboards/binance-realtime.json`
+2. Upload the file: `grafana/provisioning/dashboards/crypto-realtime.json`
 3. Select your configured data source
 4. Click **Import**
 
@@ -71,13 +72,14 @@ Check the API is working:
 curl http://localhost:8000/
 
 # Get available metrics
-curl http://localhost:8000/search
+curl http://localhost:8000/grafana/search
 
 # Test query (replace timestamps)
-curl -X POST http://localhost:8000/query \
+curl -X POST http://localhost:8000/grafana/query \
   -H "Content-Type: application/json" \
   -d '{
     "targets": [{"target": "btcusdt_close"}],
+    "interval": "5m",
     "range": {"from": "2026-02-04T00:00:00Z", "to": "2026-02-04T23:59:59Z"}
   }'
 ```
@@ -115,7 +117,7 @@ If you want to query MongoDB directly from Grafana:
 ### Dashboard Not Auto-Loading
 
 The dashboard provisioning may not work with all plugin combinations. Manually import:
-1. Copy content from `grafana/provisioning/dashboards/binance-realtime.json`
+1. Copy content from `grafana/provisioning/dashboards/crypto-realtime.json`
 2. In Grafana: **Dashboards > Import > Paste JSON**
 
 ## Current System Status
