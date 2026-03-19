@@ -183,12 +183,8 @@ class LogisticRegressionPredictor:
         prepared_df["volatility"] = prepared_df["return"].rolling(12).std()
         prepared_df["ma_10"] = prepared_df["close"].rolling(10).mean()
         prepared_df["ma_30"] = prepared_df["close"].rolling(30).mean()
-        prepared_df["momentum"] = (
-            prepared_df["close"] - prepared_df["close"].shift(10)
-        )
-        prepared_df["buy_ratio"] = (
-            prepared_df["taker_buy_base_volume"] / safe_volume
-        )
+        prepared_df["momentum"] = prepared_df["close"] - prepared_df["close"].shift(10)
+        prepared_df["buy_ratio"] = prepared_df["taker_buy_base_volume"] / safe_volume
         prepared_df["spread"] = prepared_df["high"] - prepared_df["low"]
 
         prepared_df = prepared_df.replace([np.inf, -np.inf], np.nan)
@@ -202,9 +198,7 @@ class LogisticRegressionPredictor:
         prepared_df["prediction"] = self.model.predict(x_scaled)
         prepared_df["probability_up"] = self.model.predict_proba(x_scaled)[:, 1]
         prepared_df["signal"] = prepared_df["prediction"].map({0: "DOWN ⬇", 1: "UP ⬆"})
-        prepared_df["confidence_%"] = (
-            prepared_df["probability_up"] * 100
-        ).round(2)
+        prepared_df["confidence_%"] = (prepared_df["probability_up"] * 100).round(2)
 
         # API responses use timestamps derived from the historical candle open time.
         prepared_df["timestamp_ms"] = prepared_df["open_time_ms"].astype(int)
