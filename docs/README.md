@@ -76,7 +76,7 @@ These directories matter most when you are trying to understand the codebase:
 - `src/database/`
   Shared MongoDB helpers and client wrapper.
 - `scripts/`
-  Operational scripts used by containers.
+  Operational scripts used by containers and local Docker startup.
 - `data/raw_data/`
   Raw historical Binance files.
 - `data/processed_data/`
@@ -395,7 +395,7 @@ This is the simplest newcomer workflow.
 ### Step 1: Start the core stack
 
 ```bash
-docker compose up -d mongodb main grafana binance-collector prediction-api
+./scripts/docker-up-clean.sh
 ```
 
 ### Step 2: Confirm services are up

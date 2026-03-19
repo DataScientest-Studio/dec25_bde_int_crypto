@@ -307,3 +307,19 @@ services:
     volumes:
       - model_artifacts:/app/models
     logging: *default-logging
+
+  # Dashboard runs Streamlit to visualize data and predictions.
+  dashboard:
+    build:
+      context: .
+      dockerfile: dockerfiles/Dockerfile.dashboard
+    container_name: dashboard
+    restart: unless-stopped
+    depends_on:
+      - prediction-api
+    networks:
+      - app_network
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://prediction-api:8000
