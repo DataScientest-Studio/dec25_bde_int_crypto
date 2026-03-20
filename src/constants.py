@@ -14,6 +14,10 @@ SYMBOL: str = os.getenv("BINANCE_SYMBOL", "BTCUSDT")
 INTERVAL: str = os.getenv("BINANCE_INTERVAL", "5m")  # allowed: 5m, 15m
 START_DATE: str = os.getenv("BINANCE_START_DATE", "2025-01-01")
 END_DATE: str | None = os.getenv("BINANCE_END_DATE") or None
+TRAINING_TRIGGER_URL: str = os.getenv("TRAINING_TRIGGER_URL", "").strip()
+TRAINING_TRIGGER_TIMEOUT_S: float = float(
+    os.getenv("TRAINING_TRIGGER_TIMEOUT_S", "600")
+)
 
 RAW_CSV_HEADER = [
     "open_time_ms",

@@ -4,12 +4,14 @@ The router only handles request/response concerns. All model loading,
 MongoDB access, and feature engineering live in the service layer.
 """
 
+import asyncio
 from typing import List
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from src.config.mongo_settings import get_settings as get_mongo_settings
+from src.models.models import SUPPORTED_INTERVALS
 from src.service.predict.logistic_regression.predictor import (
     FEATURES,
     INTERVAL,
@@ -17,12 +19,15 @@ from src.service.predict.logistic_regression.predictor import (
     SCALER_PATH,
     predictor,
 )
+from src.service.predict.logistic_regression.train import run_training_pipeline
 
 router = APIRouter(
     prefix="/predict/logistic",
     tags=["logistic-regression"],
     responses={404: {"description": "Not found"}},
 )
+
+_retrain_lock = asyncio.Lock()
 
 
 # These response models are API-only. They intentionally stay outside the
@@ -43,6 +48,22 @@ class LogisticPredictionResponse(BaseModel):
     latest_confidence: float
     latest_timestamp: str
     predictions: List[PredictionRow]
+
+
+class RetrainRequest(BaseModel):
+    symbol: str = "BTCUSDT"
+    interval: str = INTERVAL
+
+
+class RetrainResponse(BaseModel):
+    status: str
+    symbol: str
+    interval: str
+    rows_fetched: int
+    rows_used_for_training: int
+    accuracy: float
+    model_path: str
+    scaler_path: str
 
 
 @router.get("/{symbol}", response_model=LogisticPredictionResponse)
@@ -87,6 +108,49 @@ async def predict(
             )
             for _, row in last_n.iterrows()
         ],
+    )
+
+
+@router.post("/admin/retrain", response_model=RetrainResponse)
+async def retrain_model(request: RetrainRequest):
+    """Train fresh artifacts from MongoDB and hot-reload them into the API."""
+    symbol = request.symbol.strip().upper()
+    interval = request.interval.strip()
+
+    if interval not in SUPPORTED_INTERVALS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Interval must be one of {sorted(SUPPORTED_INTERVALS)}.",
+        )
+
+    async with _retrain_lock:
+        try:
+            result = await run_training_pipeline(symbol=symbol, interval=interval)
+            predictor.reload_artifacts()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Training error: {exc}"
+            ) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Training error: {exc}"
+            ) from exc
+
+    if not predictor.is_ready:
+        raise HTTPException(
+            status_code=500,
+            detail="Retraining finished but model artifacts could not be reloaded.",
+        )
+
+    return RetrainResponse(
+        status="trained",
+        symbol=result.symbol,
+        interval=result.interval,
+        rows_fetched=result.rows_fetched,
+        rows_used_for_training=result.rows_used_for_training,
+        accuracy=result.accuracy,
+        model_path=str(result.model_path),
+        scaler_path=str(result.scaler_path),
     )
 
 

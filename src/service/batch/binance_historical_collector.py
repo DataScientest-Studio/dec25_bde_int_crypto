@@ -22,8 +22,15 @@ from src.constants import (
     SYMBOL,
     RAW_CSV_HEADER,
     PROCESSED_CSV_HEADER,
+    TRAINING_TRIGGER_TIMEOUT_S,
+    TRAINING_TRIGGER_URL,
 )
-from src.models.models import HistoricalKline, SUPPORTED_INTERVALS, DataPaths
+from src.models.models import (
+    DataPaths,
+    HistoricalKline,
+    SUPPORTED_INTERVALS,
+    UpsertStats,
+)
 from src.database import get_historical_mongo_client, MongoClient
 from src.database.mongo_repository import AsyncKlineStore
 
@@ -344,10 +351,12 @@ def preprocess_gaps(
 # ---------------------------------------------------------------------------
 
 
-async def upsert_to_mongo(klines: List[HistoricalKline], client: MongoClient) -> None:
+async def upsert_to_mongo(
+    klines: List[HistoricalKline], client: MongoClient
+) -> UpsertStats:
     if not klines:
         print_step("[mongo] nothing to upsert")
-        return
+        return UpsertStats(0, 0, 0, 0)
 
     store = AsyncKlineStore(client)
     await store.initialize()
@@ -357,8 +366,47 @@ async def upsert_to_mongo(klines: List[HistoricalKline], client: MongoClient) ->
             f"[mongo] upsert done requested={stats.requested} matched={stats.matched} "
             f"modified={stats.modified} upserted={stats.upserted}"
         )
+        return stats
     finally:
         await store.close()
+
+
+def should_trigger_retraining(stats: UpsertStats) -> bool:
+    """Retrain only when MongoDB received new or changed historical rows."""
+    return stats.upserted > 0 or stats.modified > 0
+
+
+async def trigger_retraining(symbol: str, interval: str) -> None:
+    """Call the prediction API retraining endpoint with retries."""
+    if not TRAINING_TRIGGER_URL:
+        print_step("[train-trigger] skipped: TRAINING_TRIGGER_URL is not configured")
+        return
+
+    payload = {"symbol": symbol, "interval": interval}
+    timeout = httpx.Timeout(TRAINING_TRIGGER_TIMEOUT_S)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        for attempt in range(1, 6):
+            try:
+                resp = await client.post(TRAINING_TRIGGER_URL, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                print_step(
+                    "[train-trigger] retraining completed "
+                    f"rows={data.get('rows_used_for_training')} "
+                    f"accuracy={data.get('accuracy')}"
+                )
+                return
+            except (httpx.HTTPError, ValueError) as exc:
+                if attempt == 5:
+                    raise RuntimeError(
+                        f"Failed to trigger retraining via {TRAINING_TRIGGER_URL}"
+                    ) from exc
+                sleep_s = min(2 ** (attempt - 1), 30)
+                print_step(
+                    f"[train-trigger] failed attempt {attempt}/5: {exc!r} sleep {sleep_s}s"
+                )
+                await asyncio.sleep(sleep_s)
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +459,7 @@ class KlinePipeline:
         self.end_ms = end_ms
         self.paths = build_paths(symbol, interval)
 
-    async def run(self) -> None:
+    async def run(self) -> UpsertStats:
         # The pipeline is intentionally staged:
         # 1. fetch/update raw files
         # 2. derive processed rows
@@ -420,8 +468,13 @@ class KlinePipeline:
         merged_raw = await self._sync_raw()
         new_models = self._sync_processed(merged_raw)
         models_for_mongo = await self._prepare_models_for_mongo(new_models)
-        await self._sync_mongo(models_for_mongo)
+        mongo_stats = await self._sync_mongo(models_for_mongo)
+        if should_trigger_retraining(mongo_stats):
+            await trigger_retraining(self.symbol, self.interval)
+        else:
+            print_step("[train-trigger] skipped: no new historical rows in MongoDB")
         print_step("[pipeline] done")
+        return mongo_stats
 
     # ------------------------------------------------------------------
     # Phase 1 — raw fetch
@@ -544,9 +597,10 @@ class KlinePipeline:
             return existing_doc is None
         return False
 
-    async def _sync_mongo(self, models: List[HistoricalKline]) -> None:
+    async def _sync_mongo(self, models: List[HistoricalKline]) -> UpsertStats:
         async for client in get_historical_mongo_client():
-            await upsert_to_mongo(models, client)
+            return await upsert_to_mongo(models, client)
+        return UpsertStats(0, 0, 0, 0)
 
 
 # ---------------------------------------------------------------------------

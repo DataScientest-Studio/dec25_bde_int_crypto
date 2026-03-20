@@ -350,10 +350,9 @@ bootstrap_prediction_model() {
   fi
 
   log "Prediction model artifacts are missing or not loaded. Training them now."
-  compose run --rm model-trainer
+  docker exec prediction-api python -c \
+    "import json, os, urllib.request; payload={'symbol': os.getenv('BINANCE_SYMBOL', 'BTCUSDT').strip().upper(), 'interval': os.getenv('BINANCE_INTERVAL', '5m').strip()}; req=urllib.request.Request('http://localhost:8000/predict/logistic/admin/retrain', data=json.dumps(payload).encode(), headers={'Content-Type':'application/json'}, method='POST'); data=json.load(urllib.request.urlopen(req, timeout=600)); raise SystemExit(0 if data.get('status') == 'trained' else 1)"
 
-  log "Restarting prediction-api so it reloads the newly trained artifacts."
-  compose restart prediction-api >/dev/null
   wait_for_prediction_api_ready
 
   if container_is_running dashboard; then
