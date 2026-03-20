@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 
 from bson import Decimal128
 from fastapi import FastAPI
@@ -45,6 +46,17 @@ class FakeCollection:
                 if (
                     open_time_ms < time_range["$gte"]
                     or open_time_ms > time_range["$lte"]
+                ):
+                    continue
+
+            timestamp_range = query_filter.get("timestamp")
+            if timestamp_range:
+                timestamp = doc["timestamp"]
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                if (
+                    timestamp < timestamp_range["$gte"]
+                    or timestamp > timestamp_range["$lte"]
                 ):
                     continue
 
@@ -113,11 +125,60 @@ def sample_docs():
     ]
 
 
+def sample_streaming_docs():
+    return [
+        {
+            "symbol": "BTCUSDT",
+            "interval": "5m",
+            "timestamp": datetime(2026, 3, 19, 7, 40, tzinfo=timezone.utc),
+            "event_time": 1773906001000,
+            "open": 70080.0,
+            "high": 70140.0,
+            "low": 70005.0,
+            "close": 70105.0,
+            "volume": 89.1,
+            "quote_volume": 6201000.0,
+            "trade_count": 13250,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "interval": "5m",
+            "timestamp": datetime(2026, 3, 19, 7, 40, tzinfo=timezone.utc),
+            "event_time": 1773906002000,
+            "open": 70080.0,
+            "high": 70155.0,
+            "low": 70005.0,
+            "close": 70112.0,
+            "volume": 90.2,
+            "quote_volume": 6209000.0,
+            "trade_count": 13300,
+        },
+        {
+            "symbol": "BTCUSDT",
+            "interval": "5m",
+            "timestamp": datetime(2026, 3, 19, 7, 45, tzinfo=timezone.utc),
+            "event_time": 1773906301000,
+            "open": 70112.0,
+            "high": 70250.0,
+            "low": 70090.0,
+            "close": 70210.0,
+            "volume": 20.5,
+            "quote_volume": 1440000.0,
+            "trade_count": 4100,
+        },
+    ]
+
+
 def test_query_uses_requested_interval(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post(
@@ -137,7 +198,7 @@ def test_query_uses_requested_interval(monkeypatch):
     assert response.json() == [
         {"target": "btcusdt_close", "datapoints": [[70238.0, 1773906300000]]}
     ]
-    assert collection.last_query_filter == {
+    assert historical_collection.last_query_filter == {
         "symbol": "BTCUSDT",
         "interval": "15m",
         "open_time_ms": {"$gte": 1773903600000, "$lte": 1773907200000},
@@ -146,11 +207,16 @@ def test_query_uses_requested_interval(monkeypatch):
 
 
 def test_query_falls_back_to_default_interval(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
     monkeypatch.setattr(grafana, "DEFAULT_INTERVAL", "5m")
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post(
@@ -176,15 +242,20 @@ def test_query_falls_back_to_default_interval(monkeypatch):
             ],
         }
     ]
-    assert collection.last_query_filter["interval"] == "5m"
+    assert historical_collection.last_query_filter["interval"] == "5m"
     assert mongo_client.closed is True
 
 
 def test_query_accepts_form_encoded_wrapped_json(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post(
@@ -213,7 +284,7 @@ def test_query_accepts_form_encoded_wrapped_json(monkeypatch):
             ],
         }
     ]
-    assert collection.last_query_filter == {
+    assert historical_collection.last_query_filter == {
         "symbol": "BTCUSDT",
         "interval": "5m",
         "open_time_ms": {"$gte": 1773903600000, "$lte": 1773907200000},
@@ -222,10 +293,15 @@ def test_query_accepts_form_encoded_wrapped_json(monkeypatch):
 
 
 def test_candles_returns_named_rows_for_debug_panel(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post(
@@ -267,10 +343,15 @@ def test_candles_returns_named_rows_for_debug_panel(monkeypatch):
 
 
 def test_candles_accepts_form_encoded_wrapped_json(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post(
@@ -312,7 +393,7 @@ def test_candles_accepts_form_encoded_wrapped_json(monkeypatch):
             "trade_count": 13200,
         },
     ]
-    assert collection.last_query_filter == {
+    assert historical_collection.last_query_filter == {
         "symbol": "BTCUSDT",
         "interval": "5m",
         "open_time_ms": {"$gte": 1773903600000, "$lte": 1773907200000},
@@ -321,10 +402,15 @@ def test_candles_accepts_form_encoded_wrapped_json(monkeypatch):
 
 
 def test_query_returns_default_close_series_when_body_is_missing(monkeypatch):
-    collection = FakeCollection(sample_docs())
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection([])
     mongo_client = FakeMongoClient()
 
-    monkeypatch.setattr(grafana, "get_collection", lambda: (mongo_client, collection))
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
 
     client = build_test_client()
     response = client.post("/grafana/query")
@@ -339,7 +425,75 @@ def test_query_returns_default_close_series_when_body_is_missing(monkeypatch):
             ],
         }
     ]
-    assert collection.last_query_filter["interval"] == "5m"
+    assert historical_collection.last_query_filter["interval"] == "5m"
+    assert mongo_client.closed is True
+
+
+def test_candles_overlay_latest_streaming_rows_on_historical(monkeypatch):
+    historical_collection = FakeCollection(sample_docs())
+    streaming_collection = FakeCollection(sample_streaming_docs())
+    mongo_client = FakeMongoClient()
+
+    monkeypatch.setattr(
+        grafana,
+        "get_collections",
+        lambda: (mongo_client, historical_collection, streaming_collection),
+    )
+
+    client = build_test_client()
+    response = client.post(
+        "/grafana/candles",
+        json={
+            "interval": "5m",
+            "range": {
+                "from": "2026-03-19T07:00:00Z",
+                "to": "2026-03-19T08:00:00Z",
+            },
+            "limit": 5,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "time": 1773905700000,
+            "open": 70110.0,
+            "high": 70190.0,
+            "low": 70080.0,
+            "close": 70181.0,
+            "volume": 90.5,
+            "quote_volume": 6340000.5,
+            "trade_count": 14000,
+        },
+        {
+            "time": 1773906000000,
+            "open": 70080.0,
+            "high": 70155.0,
+            "low": 70005.0,
+            "close": 70112.0,
+            "volume": 90.2,
+            "quote_volume": 6209000.0,
+            "trade_count": 13300,
+        },
+        {
+            "time": 1773906300000,
+            "open": 70112.0,
+            "high": 70250.0,
+            "low": 70090.0,
+            "close": 70210.0,
+            "volume": 20.5,
+            "quote_volume": 1440000.0,
+            "trade_count": 4100,
+        },
+    ]
+    assert streaming_collection.last_query_filter == {
+        "symbol": "BTCUSDT",
+        "interval": "5m",
+        "timestamp": {
+            "$gte": datetime(2026, 3, 19, 7, 0, tzinfo=timezone.utc),
+            "$lte": datetime(2026, 3, 19, 8, 0, tzinfo=timezone.utc),
+        },
+    }
     assert mongo_client.closed is True
 
 

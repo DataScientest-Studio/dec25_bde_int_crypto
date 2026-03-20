@@ -103,6 +103,18 @@ def get_collection():
     return mongo_client, db[mongo_settings.mongodb_collection_historical]
 
 
+def get_collections():
+    """Return the historical and streaming collections for merged Grafana views."""
+    mongo_settings = get_settings()
+    mongo_client = MongoClient(mongo_settings.mongodb_uri)
+    db = mongo_client[mongo_settings.mongodb_database]
+    return (
+        mongo_client,
+        db[mongo_settings.mongodb_collection_historical],
+        db[mongo_settings.mongodb_collection_streaming],
+    )
+
+
 def _to_epoch_ms(iso_timestamp: str) -> int:
     """Convert an ISO timestamp into UTC epoch milliseconds."""
     dt = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
@@ -111,6 +123,24 @@ def _to_epoch_ms(iso_timestamp: str) -> int:
     else:
         dt = dt.astimezone(timezone.utc)
     return int(dt.timestamp() * 1000)
+
+
+def _datetime_to_epoch_ms(value: datetime) -> int:
+    """Normalize Mongo datetime values into UTC epoch milliseconds."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return int(value.timestamp() * 1000)
+
+
+def _timestamp_value_to_epoch_ms(value: Any) -> int:
+    """Convert Mongo timestamp values into UTC epoch milliseconds."""
+    if isinstance(value, datetime):
+        return _datetime_to_epoch_ms(value)
+    if isinstance(value, str):
+        return _to_epoch_ms(value)
+    raise TypeError(f"Unsupported timestamp type: {type(value).__name__}")
 
 
 def _to_number(value):
@@ -180,6 +210,177 @@ def _build_query_filter(range_data: dict, *, symbol: str, interval: str) -> dict
             logger.error(f"Error parsing timestamps: {exc}")
 
     return query_filter
+
+
+def _build_streaming_query_filter(
+    range_data: dict, *, symbol: str, interval: str
+) -> dict:
+    """Build a MongoDB filter for streaming candles keyed by timestamp."""
+    query_filter = {"symbol": symbol, "interval": interval}
+
+    from_time = range_data.get("from")
+    to_time = range_data.get("to")
+    if from_time and to_time:
+        try:
+            query_filter["timestamp"] = {
+                "$gte": datetime.fromtimestamp(
+                    _to_epoch_ms(from_time) / 1000, tz=timezone.utc
+                ),
+                "$lte": datetime.fromtimestamp(
+                    _to_epoch_ms(to_time) / 1000, tz=timezone.utc
+                ),
+            }
+        except Exception as exc:
+            logger.error(f"Error parsing streaming timestamps: {exc}")
+
+    return query_filter
+
+
+def _normalize_historical_candle(doc: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a historical Mongo document into the Grafana candle shape."""
+    required_fields = {
+        "open_time_ms",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "quote_volume",
+        "trade_count",
+    }
+    if not required_fields.issubset(doc):
+        return None
+
+    try:
+        return {
+            "time": int(doc["open_time_ms"]),
+            "open": _to_number(doc["open"]),
+            "high": _to_number(doc["high"]),
+            "low": _to_number(doc["low"]),
+            "close": _to_number(doc["close"]),
+            "volume": _to_number(doc["volume"]),
+            "quote_volume": _to_number(doc["quote_volume"]),
+            "trade_count": int(doc["trade_count"]),
+        }
+    except Exception as exc:
+        logger.warning(
+            "Skipping historical Grafana candle due to conversion error: %s", exc
+        )
+        return None
+
+
+def _normalize_streaming_candle(doc: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert a streaming Mongo document into the Grafana candle shape."""
+    required_fields = {
+        "timestamp",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "quote_volume",
+        "trade_count",
+    }
+    if not required_fields.issubset(doc):
+        return None
+
+    try:
+        return {
+            "time": _timestamp_value_to_epoch_ms(doc["timestamp"]),
+            "open": _to_number(doc["open"]),
+            "high": _to_number(doc["high"]),
+            "low": _to_number(doc["low"]),
+            "close": _to_number(doc["close"]),
+            "volume": _to_number(doc["volume"]),
+            "quote_volume": _to_number(doc["quote_volume"]),
+            "trade_count": int(doc["trade_count"]),
+        }
+    except Exception as exc:
+        logger.warning(
+            "Skipping streaming Grafana candle due to conversion error: %s", exc
+        )
+        return None
+
+
+def _load_merged_candles(
+    range_data: dict, *, symbol: str, interval: str, limit: int
+) -> list[dict[str, Any]]:
+    """Overlay the latest streaming candles on top of historical candles."""
+    historical_filter = _build_query_filter(
+        range_data, symbol=symbol, interval=interval
+    )
+    streaming_filter = _build_streaming_query_filter(
+        range_data, symbol=symbol, interval=interval
+    )
+
+    mongo_client, historical_collection, streaming_collection = get_collections()
+    try:
+        historical_docs = list(
+            historical_collection.find(
+                historical_filter,
+                {
+                    "open_time_ms": 1,
+                    "open": 1,
+                    "high": 1,
+                    "low": 1,
+                    "close": 1,
+                    "volume": 1,
+                    "quote_volume": 1,
+                    "trade_count": 1,
+                    "_id": 0,
+                },
+            )
+            .sort("open_time_ms", -1)
+            .limit(limit)
+        )
+
+        streaming_cursor = streaming_collection.find(
+            streaming_filter,
+            {
+                "timestamp": 1,
+                "event_time": 1,
+                "open": 1,
+                "high": 1,
+                "low": 1,
+                "close": 1,
+                "volume": 1,
+                "quote_volume": 1,
+                "trade_count": 1,
+                "_id": 0,
+            },
+        ).sort("event_time", -1)
+
+        # Range-scoped requests already keep the stream query bounded in time.
+        # Without a range, cap the tail scan so the endpoint still stays light.
+        if "timestamp" not in streaming_filter:
+            streaming_cursor = streaming_cursor.limit(max(limit * 200, limit))
+
+        streaming_docs = list(streaming_cursor)
+
+        merged_by_time: dict[int, dict[str, Any]] = {}
+        latest_streaming_by_time: dict[int, dict[str, Any]] = {}
+
+        for doc in historical_docs:
+            normalized = _normalize_historical_candle(doc)
+            if normalized is not None:
+                merged_by_time[normalized["time"]] = normalized
+
+        # Docs are sorted by event_time descending, so the first row we see for a
+        # candle timestamp is the freshest streaming snapshot for that candle.
+        for doc in streaming_docs:
+            normalized = _normalize_streaming_candle(doc)
+            if normalized is None:
+                continue
+            latest_streaming_by_time.setdefault(normalized["time"], normalized)
+
+        merged_by_time.update(latest_streaming_by_time)
+
+        rows = [merged_by_time[key] for key in sorted(merged_by_time)]
+        if len(rows) > limit:
+            rows = rows[-limit:]
+        return rows
+    finally:
+        mongo_client.close()
 
 
 def _default_payload(model_cls: type[BaseModel]) -> dict[str, Any]:
@@ -329,49 +530,24 @@ async def query(request: Request):
         "btcusdt_trade_count": "trade_count",
     }
 
-    mongo_client, collection = get_collection()
-    try:
-        results = []
+    merged_rows = _load_merged_candles(
+        range_data, symbol=symbol, interval=interval, limit=max_data_points
+    )
 
-        for target in targets:
-            target_name = target.get("target", "")
-            field = field_map.get(target_name, "close")
+    results = []
+    for target in targets:
+        target_name = target.get("target", "")
+        field = field_map.get(target_name, "close")
+        datapoints = [
+            [row[field], row["time"]]
+            for row in merged_rows
+            if field in row and "time" in row
+        ]
 
-            query_filter = _build_query_filter(
-                range_data, symbol=symbol, interval=interval
-            )
+        logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
+        results.append({"target": target_name, "datapoints": datapoints})
 
-            docs = list(
-                collection.find(query_filter, {"open_time_ms": 1, field: 1, "_id": 0})
-                .sort("open_time_ms", -1)
-                .limit(max_data_points)
-            )
-            docs.reverse()
-
-            logger.info(f"Found {len(docs)} documents for {target_name}")
-
-            datapoints = []
-            for doc in docs:
-                if "open_time_ms" not in doc or field not in doc:
-                    continue
-
-                try:
-                    datapoints.append(
-                        [_to_number(doc[field]), int(doc["open_time_ms"])]
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Skipping Grafana datapoint for %s due to conversion error: %s",
-                        target_name,
-                        exc,
-                    )
-
-            logger.info(f"Returning {len(datapoints)} datapoints for {target_name}")
-            results.append({"target": target_name, "datapoints": datapoints})
-
-        return results
-    finally:
-        mongo_client.close()
+    return results
 
 
 @router.post("/candles", response_model=list[GrafanaCandleRow])
@@ -388,66 +564,9 @@ async def candles(request: Request):
     limit = _to_positive_int(payload.get("limit", payload.get("maxDataPoints")), 200)
     symbol = _resolve_symbol(payload, targets)
     interval = _resolve_interval(payload, targets)
-    query_filter = _build_query_filter(range_data, symbol=symbol, interval=interval)
-
-    mongo_client, collection = get_collection()
-    try:
-        docs = list(
-            collection.find(
-                query_filter,
-                {
-                    "open_time_ms": 1,
-                    "open": 1,
-                    "high": 1,
-                    "low": 1,
-                    "close": 1,
-                    "volume": 1,
-                    "quote_volume": 1,
-                    "trade_count": 1,
-                    "_id": 0,
-                },
-            )
-            .sort("open_time_ms", -1)
-            .limit(limit)
-        )
-        docs.reverse()
-
-        rows = []
-        for doc in docs:
-            required_fields = {
-                "open_time_ms",
-                "open",
-                "high",
-                "low",
-                "close",
-                "volume",
-                "quote_volume",
-                "trade_count",
-            }
-            if not required_fields.issubset(doc):
-                continue
-
-            try:
-                rows.append(
-                    {
-                        "time": int(doc["open_time_ms"]),
-                        "open": _to_number(doc["open"]),
-                        "high": _to_number(doc["high"]),
-                        "low": _to_number(doc["low"]),
-                        "close": _to_number(doc["close"]),
-                        "volume": _to_number(doc["volume"]),
-                        "quote_volume": _to_number(doc["quote_volume"]),
-                        "trade_count": int(doc["trade_count"]),
-                    }
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Skipping Grafana candle row due to conversion error: %s", exc
-                )
-
-        return rows
-    finally:
-        mongo_client.close()
+    return _load_merged_candles(
+        range_data, symbol=symbol, interval=interval, limit=limit
+    )
 
 
 def _annotation_response() -> list[GrafanaAnnotation]:
