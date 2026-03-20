@@ -29,9 +29,7 @@ async def test_pipeline_triggers_retraining_when_mongo_changes(monkeypatch):
         triggered.append((symbol, interval))
 
     monkeypatch.setattr(collector.KlinePipeline, "_sync_raw", fake_sync_raw)
-    monkeypatch.setattr(
-        collector.KlinePipeline, "_sync_processed", fake_sync_processed
-    )
+    monkeypatch.setattr(collector.KlinePipeline, "_sync_processed", fake_sync_processed)
     monkeypatch.setattr(
         collector.KlinePipeline, "_prepare_models_for_mongo", fake_prepare_models
     )
@@ -69,9 +67,7 @@ async def test_pipeline_skips_retraining_when_mongo_is_unchanged(monkeypatch):
         triggered.append((symbol, interval))
 
     monkeypatch.setattr(collector.KlinePipeline, "_sync_raw", fake_sync_raw)
-    monkeypatch.setattr(
-        collector.KlinePipeline, "_sync_processed", fake_sync_processed
-    )
+    monkeypatch.setattr(collector.KlinePipeline, "_sync_processed", fake_sync_processed)
     monkeypatch.setattr(
         collector.KlinePipeline, "_prepare_models_for_mongo", fake_prepare_models
     )
