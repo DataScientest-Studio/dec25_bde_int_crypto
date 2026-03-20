@@ -7,6 +7,7 @@ prediction API.
 
 import asyncio
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import joblib
@@ -44,6 +45,17 @@ DECIMAL_COLUMNS = [
 MODEL_DIR = Path(os.getenv("MODEL_DIR", "/app/models"))
 SYMBOL = os.getenv("BINANCE_SYMBOL", "BTCUSDT").strip().upper()
 INTERVAL = os.getenv("BINANCE_INTERVAL", "5m").strip()
+
+
+@dataclass(frozen=True)
+class TrainingRunResult:
+    symbol: str
+    interval: str
+    rows_fetched: int
+    rows_used_for_training: int
+    accuracy: float
+    model_path: Path
+    scaler_path: Path
 
 
 def decimal_to_float(value):
@@ -96,10 +108,10 @@ async def fetch_klines(symbol: str, interval: str) -> pd.DataFrame:
         await client.close()
 
 
-def prepare_dataset(df: pd.DataFrame) -> pd.DataFrame:
+def prepare_dataset(df: pd.DataFrame, *, symbol: str, interval: str) -> pd.DataFrame:
     """Rebuild the training frame from MongoDB documents."""
     if df.empty:
-        raise ValueError(f"No data found for {SYMBOL} {INTERVAL} in MongoDB.")
+        raise ValueError(f"No data found for {symbol} {interval} in MongoDB.")
 
     for column in DECIMAL_COLUMNS:
         df[column] = df[column].apply(decimal_to_float)
@@ -168,7 +180,9 @@ def train_model(df: pd.DataFrame) -> tuple[LogisticRegression, StandardScaler, f
     return model, scaler, accuracy
 
 
-def save_artifacts(model: LogisticRegression, scaler: StandardScaler) -> None:
+def save_artifacts(
+    model: LogisticRegression, scaler: StandardScaler
+) -> tuple[Path, Path]:
     """Persist the model artifacts for the prediction API container."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -180,15 +194,34 @@ def save_artifacts(model: LogisticRegression, scaler: StandardScaler) -> None:
 
     print(f"[trainer] Model saved  : {model_path}")
     print(f"[trainer] Scaler saved : {scaler_path}")
+    return model_path, scaler_path
+
+
+async def run_training_pipeline(
+    symbol: str = SYMBOL, interval: str = INTERVAL
+) -> TrainingRunResult:
+    """Run the training pipeline end-to-end and return a compact summary."""
+    df = await fetch_klines(symbol, interval)
+    prepared_df = await asyncio.to_thread(
+        prepare_dataset, df, symbol=symbol, interval=interval
+    )
+    model, scaler, accuracy = await asyncio.to_thread(train_model, prepared_df)
+    model_path, scaler_path = await asyncio.to_thread(save_artifacts, model, scaler)
+    print("[trainer] done")
+    return TrainingRunResult(
+        symbol=symbol,
+        interval=interval,
+        rows_fetched=len(df),
+        rows_used_for_training=len(prepared_df),
+        accuracy=accuracy,
+        model_path=model_path,
+        scaler_path=scaler_path,
+    )
 
 
 def main() -> None:
     """Run the training pipeline end-to-end."""
-    df = asyncio.run(fetch_klines(SYMBOL, INTERVAL))
-    prepared_df = prepare_dataset(df)
-    model, scaler, _ = train_model(prepared_df)
-    save_artifacts(model, scaler)
-    print("[trainer] done")
+    asyncio.run(run_training_pipeline())
 
 
 if __name__ == "__main__":

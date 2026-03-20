@@ -205,6 +205,8 @@ services:
     depends_on:
       mongodb:
         condition: service_healthy
+      prediction-api:
+        condition: service_healthy
     networks:
       - app_network
     env_file:
@@ -212,6 +214,8 @@ services:
     environment:
       # Containers talk to MongoDB over the internal Compose network.
       MONGODB_URI: mongodb://admin:password@mongodb:27017/?authSource=admin
+      TRAINING_TRIGGER_URL: http://prediction-api:8000/predict/logistic/admin/retrain
+      TRAINING_TRIGGER_TIMEOUT_S: "600"
     volumes:
       # Bind mount local data so raw and processed files stay on the host.
       - ./data:/app/data
@@ -306,6 +310,18 @@ services:
       - "8001:8000"
     volumes:
       - model_artifacts:/app/models
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/predict/logistic/status/check', timeout=5).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     logging: *default-logging
 
   # Dashboard runs Streamlit to visualize data and predictions.
