@@ -86,7 +86,6 @@ These directories matter most when you are trying to understand the codebase:
 
 Important note:
 
-- [`src/api/app.py`](../src/api/app.py) still exists, but it is a legacy FastAPI file and is not the application used by the Docker stack.
 - The active app is [`src/api/main.py`](../src/api/main.py).
 
 ## 5. Configuration And Environment Variables
@@ -556,7 +555,6 @@ So the dashboard works for the current BTC/USDT historical view, but it is not y
 
 ### Legacy API file
 
-[`src/api/app.py`](../src/api/app.py) is still present, but it should be treated as legacy.
 
 For current behavior, trust:
 
