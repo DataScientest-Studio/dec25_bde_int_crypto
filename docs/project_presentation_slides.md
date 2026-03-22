@@ -90,9 +90,6 @@ Key message:
 Current implementation note:
 - This repo uses a cron-based collector, not Airflow
 
-Visual:
-- <img src="../assets/data-engineering-pipeline.png" width="82%">
-
 ---
 
 # ETL: Extract
