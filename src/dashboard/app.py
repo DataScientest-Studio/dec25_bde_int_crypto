@@ -348,7 +348,6 @@ def render_presentation() -> None:
             st.session_state.presentation_slide = selected_slide
 
     st.title("🎞 CryptoBot with Binance")
-    st.caption(f"{total_slides}-slide project presentation rendered from markdown")
 
     if show_all:
         for index, slide in enumerate(slides, start=1):
