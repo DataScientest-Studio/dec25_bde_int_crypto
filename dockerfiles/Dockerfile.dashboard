@@ -12,6 +12,8 @@ RUN uv pip install --system \
     plotly
 
 COPY src/ ./src/
+COPY docs/ ./docs/
+COPY assets/ ./assets/
 
 CMD ["streamlit", "run", "src/dashboard/app.py", \
      "--server.port=8501", \
