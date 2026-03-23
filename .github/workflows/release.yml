@@ -57,3 +57,4 @@ jobs:
         docker build -f dockerfiles/Dockerfile.trainer -t crypto-data-api-trainer:${{ github.sha }} .
         docker build -f dockerfiles/Dockerfile.prediction-api -t crypto-data-api-prediction-api:${{ github.sha }} .
         docker build -f dockerfiles/Dockerfile.stream -t crypto-data-api-stream:${{ github.sha }} .
+        docker build -f dockerfiles/Dockerfile.dashboard -t crypto-data-api-dashbaord:${{ github.sha }} .
