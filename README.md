@@ -290,6 +290,6 @@ docker compose restart prediction-api
 
 ## Additional Documentation
 
-- [`GRAFANA_SETUP.md`](GRAFANA_SETUP.md): Grafana setup and verification notes
-- [`DASHBOARD_ACCESS.md`](DASHBOARD_ACCESS.md): dashboard access details
+- [`GRAFANA_SETUP.md`](assets/GRAFANA_SETUP.md): Grafana setup and verification notes
+- [`DASHBOARD_ACCESS.md`](assets/DASHBOARD_ACCESS.md): dashboard access details
 - [`tests/README.md`](tests/README.md): test-specific notes
